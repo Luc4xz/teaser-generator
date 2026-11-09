@@ -34,7 +34,7 @@ export default function ConceptPanel({ project, extracting, disabled, onChange, 
     <div className={`concept-heading ${canMove ? 'concept-drag-handle' : ''}`} draggable={canMove} onDragStart={startDrag} onDragEnd={event=>{event.stopPropagation();clearDragPreview();onDragState(false);}} title={canMove ? 'Drag this header to move only the concept card' : undefined}><span className="concept-drag-grip" aria-hidden="true">⠿</span><h3 id="concept-heading">Scientific concept</h3><span>{extracting ? 'GENERATING…' : stale ? 'SOURCE CHANGED' : 'CURRENT DRAFT'}</span></div>
     {extracting && <p role="status">Reading your paper and generating a concept…</p>}
     {concept && <>
-      {stale && <p className="concept-stale" role="status">Paper or request changed. Generate the concept again using the button on the left.</p>}
+      {stale && <p className="concept-stale" role="status">Paper changed. Generate the concept again using the button on the left.</p>}
       <div className="concept-move-action"><span>Drag the card header to the box beside your paper.</span><button type="button" disabled={!canMove} onClick={onConfirm}>← Confirm & move left</button></div>
       <div className="concept-editor">
         <fieldset disabled={disabled} className="concept-fields">{CONCEPT_FIELDS.map(([key, label, limit]) => <LockedField key={key} name={`scientificConcept.${key}`} label={label} locks={project.parameterLocks} onToggle={onToggleLock} disabled={disabled}><AutoGrowTextarea rows={2} maxLength={limit} value={concept[key] || ''} onChange={e => onChange({ ...concept, [key]: e.target.value })}/></LockedField>)}

@@ -1,4 +1,4 @@
-export const PARAMETER_KEYS = ['paper','userPrompt','audience','preserve','preferences','visual.representation','visual.purpose','visual.layout','visual.density', ...['core_concept','entities','mechanism','finding','evidence','limitations'].map(key=>`scientificConcept.${key}`)];
+export const PARAMETER_KEYS = ['paper','audience','preserve','preferences','visual.representation','visual.purpose','visual.layout','visual.density', ...['core_concept','entities','mechanism','finding','evidence','limitations'].map(key=>`scientificConcept.${key}`)];
 export function lockedParameters(project) { return PARAMETER_KEYS.filter(key=>project.parameterLocks?.[key]); }
 export function preserveLockedValues(next, current) {
   const result={...next};

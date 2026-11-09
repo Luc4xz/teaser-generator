@@ -9,7 +9,7 @@ function project() {const p={paper:'Paper A',userPrompt:'Explain the mechanism',
 test('source changes invalidate concept but styling changes preserve it',()=>{
  const p=project();assert.equal(conceptIsReady(p),true);
  assert.equal(conceptIsReady({...p,paper:'Paper B'}),false);
- assert.equal(conceptIsReady({...p,userPrompt:'Explain something else'}),false);
+ assert.equal(conceptIsReady({...p,userPrompt:'Explain something else'}),true);
  assert.equal(conceptIsReady({...p,visual:{layout:'split'}}),true);
  assert.equal(generationPayload({...p,paper:'Paper B'}).scientific_concept,null);
  assert.deepEqual(generationPayload(p).scientific_concept,concept);
@@ -55,4 +55,23 @@ test('stale and incomplete concepts cannot be docked',async()=>{
  assert.equal(dockConcept(stale),stale);
  const incomplete=project();incomplete.scientificConcept.finding='';
  assert.equal(dockConcept(incomplete),incomplete);
+});
+
+test('legacy confirmed concepts ignore retired prompt changes but still detect paper changes',()=>{
+ const p={...project(),conceptConfirmed:true,conceptSource:JSON.stringify(['Paper A','Old request']),userPrompt:'Changed request'};
+ assert.equal(conceptIsReady(p),true);
+ assert.equal(conceptIsReady({...p,paper:'Paper B'}),false);
+ assert.equal(conceptIsReady({...p,conceptSource:'bad data'}),false);
+});
+test('concept extraction and image workflow omit retired prompt and its lock',async()=>{
+ const {refinementPayload}=await import('./workflow.js');
+ const p={...project(),userPrompt:'Conflicts with concept',parameterLocks:{userPrompt:true,'scientificConcept.finding':true}};
+ const payload=refinementPayload(p);
+ assert.equal(payload.user_prompt,'');
+ assert.deepEqual(payload.scientific_concept,concept);
+ assert.equal(payload.parameter_locks.includes('userPrompt'),false);
+ assert.equal(payload.parameter_locks.includes('scientificConcept.finding'),true);
+ let sent;
+ await extractConcept(p,async(_,options)=>{sent=JSON.parse(options.body);return {ok:true,json:async()=>concept};});
+ assert.equal(sent.user_prompt,'');
 });

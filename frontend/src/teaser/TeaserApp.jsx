@@ -74,7 +74,7 @@ export default function TeaserApp() {
   const [selectedId,setSelectedId] = useState(null);
   const [conceptDragging,setConceptDragging] = useState(false);
   const [dragOver,setDragOver] = useState(false);
-  const fileInput = useRef(null); const promptInput = useRef(null); const canvas = useRef(null); const dialog = useRef(null);
+  const fileInput = useRef(null); const canvas = useRef(null); const dialog = useRef(null);
   const generating = useRef(false);
   const images = project.canvasImages || [];
   const selected = images.find(item => item.id === (selectedId || project.activeCanvasId)) || images.at(-1);
@@ -133,7 +133,7 @@ export default function TeaserApp() {
     dialog.current?.close();
     document.querySelector('.input-scroll')?.scrollTo({top:0});
     canvas.current?.scrollTo({top:0});
-    promptInput.current?.focus();
+    fileInput.current?.focus();
   }
   async function analyzeConcept() {
     if (disabled || project.conceptConfirmed || !project.paper.trim()) return;
@@ -218,9 +218,6 @@ export default function TeaserApp() {
             </div><div className="concept-dock-column"><div className="input-section-label"><span>Confirmed concept</span></div><ConceptDock project={project} disabled={disabled} dragging={conceptDragging} onConfirm={confirmConcept} onReturn={returnConcept}/></div></div>
             <details className="paper-text"><summary>{project.paper?'Review extracted paper text':'Or paste paper text'}</summary><textarea aria-label="Paper text" disabled={isLocked('paper')} value={project.paper} rows={7} onChange={e=>patch({paper:e.target.value,fileName:''})} placeholder="Paste an abstract or paper text…"/><p>Check PDF extraction, especially equations and columns.</p></details>
         {briefParent && <p className="branch-note">Editing the brief from a saved version. Generate will create a new version.<button onClick={()=>setBriefParent(null)} type="button">Start independently</button></p>}
-            <div className="prompt-label"><label htmlFor="user-prompt">What do you want to show?</label><ParameterLock label="Image request" locked={isLocked('userPrompt')} disabled={disabled} onToggle={()=>toggleLock('userPrompt')}/></div>
-            <textarea id="user-prompt" disabled={isLocked('userPrompt')} ref={promptInput} className="prompt-input" value={project.userPrompt} onChange={e=>patch({userPrompt:e.target.value})} rows={6} placeholder="For example: Show how the method in this paper works. Use one clear visual metaphor, focus on the main finding, and keep text minimal."/>
-            <div className="prompt-suggestions">{['Explain the main finding','Visualize the method','Make it intuitive'].map(text=><button key={text} type="button" disabled={isLocked('userPrompt')} onClick={()=>patch({userPrompt:project.userPrompt ? `${project.userPrompt}\n${text}.` : `${text} from the paper with a clear illustration and minimal text.`})}>{text}<span>↗</span></button>)}</div>
             <details className="brief-fields foldable-options" open>
               <summary>Image direction <span>(style & purpose)</span></summary>
               <div className="fold-content">

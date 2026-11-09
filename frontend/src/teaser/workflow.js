@@ -5,7 +5,7 @@ export function inputSnapshot(project) {
   return Object.fromEntries(['paper','fileName','title','userPrompt','audience','preserve','preferences','visual','scientificConcept','conceptSource','parameterLocks','conceptConfirmed','conceptLocksBeforeDock'].map(key=>[key,structuredClone(project[key] ?? ((key==='visual'||key==='parameterLocks')?{}:key==='scientificConcept'?null:''))]));
 }
 export function refinementPayload(snapshot, options={}) {
-  return {...generationPayload(snapshot), feedback:options.feedback || '', restart_from:options.restartFrom || 'plan',
+  return {...generationPayload({...snapshot,userPrompt:'',insight:''}), feedback:options.feedback || '', restart_from:options.restartFrom || 'plan',
     drawing_prompt:options.drawingPrompt || '', parent_version_id:options.parentId || ''};
 }
 async function responseJSON(response) {
@@ -14,7 +14,7 @@ async function responseJSON(response) {
   return value;
 }
 export async function extractConcept(project, request=fetch) {
-  return responseJSON(await request(`${API_BASE}/api/teaser/concept`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(generationPayload(project))}));
+  return responseJSON(await request(`${API_BASE}/api/teaser/concept`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(generationPayload({...project,userPrompt:'',insight:''}))}));
 }
 export async function startWorkflow(snapshot,options={},request=fetch) {
   return responseJSON(await request(`${API_BASE}/api/teaser/runs`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(refinementPayload(snapshot,options))}));
