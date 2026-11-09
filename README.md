@@ -6,9 +6,9 @@ A focused workspace for turning research papers and user requests into illustrat
 
 The OpenAI workflow now separates **paper → scientific concept → visual mapping → drawing prompt → image**:
 
-1. Upload or paste the paper and describe the desired focus.
+1. Upload or paste the paper. The scientific concept is the source of the image subject; there is no separate free-text subject prompt.
 2. After a paper is uploaded or pasted, the **Generate concept** button on the left becomes enabled. The resulting concept appears as a compact artifact on the right; expand **Review & edit** to edit six required fields: core concept, entities, relationships/mechanism, main finding, evidence, and limitations. Missing evidence must be stated explicitly; extraction does not verify claims.
-3. Drag the reviewed concept card into the destination beside the paper upload card, or click **Confirm & move left**. This confirms the concept, locks all six fields, and enables image generation. The compact confirmed card has a **Return to canvas to edit** action, which restores the previous individual field locks. Confirmation and locks persist across reloads. Set image direction and constraints, then generate. Changing the source paper or main request makes the concept stale and requires re-extraction; changing style does not.
+3. Drag the reviewed concept card into the destination beside the paper upload card, or click **Confirm & move left**. This confirms the concept, locks all six fields, and enables image generation. The compact confirmed card has a **Return to canvas to edit** action, which restores the previous individual field locks. Confirmation and locks persist across reloads. Set image direction and constraints, then generate. Changing the source paper makes the concept stale and requires re-extraction; changing style does not.
 4. The backend validates a structured visual plan that maps named concept fields to depictions and explains each connection. It compiles six fixed drawing-prompt sections: scientific concept; evidence and limits; visual mapping; composition; style and image text; exclusions. Required fields, field lengths, mapping references, refusal, and incomplete model outputs are checked before image generation.
 5. Each version saves its concept, visual mapping, prompt sections, and exact rendering prompt. Inspect these on the right or use **Revisit paper & brief** to restore and edit the version’s concept in the right-hand artifact panel. Rendering-only revisions use saved or manually edited instructions; their mappings are not rebuilt or claimed to be revalidated.
 
@@ -31,7 +31,7 @@ labelled creative interpretation. The previous image remains available if a new 
 Additional controls are collapsed by default: **Image direction** selects abstract,
 illustrated, or realistic representation and an explanatory, thought-provoking, or balanced
 purpose; **Audience & constraints** holds audience, facts to preserve, and exclusions.
-The main prompt owns the subject, mechanism, and concept; removed legacy fields are not sent.
+The reviewed scientific concept owns the subject and mechanism. Retired free-text subject prompts are not sent by the concept or version workflow.
 Publication front matter and common metadata are filtered before planning. Grounded drawing
 instructions contain visual mappings and claims; fallback prompts use at most three short
 research excerpts instead of the opening paper page. This extractive fallback remains unverified.
