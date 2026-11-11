@@ -14,13 +14,13 @@ The OpenAI workflow now separates **paper → scientific concept → visual mapp
 
 Each source, brief, visual setting, and concept field has a **Keep / Change** lock toggle. Keep prevents edits and preserves the value when restoring or refining a version. Concept regeneration replaces only unlocked fields; locked fields are preserved by the backend even if the model returns different values. With all six concept fields locked, extraction returns them without another model call. Lock states autosave and are included in version snapshots. Image prompts explicitly give locked settings priority over conflicting revision feedback; generated pixels still require review.
 
-Concept extraction uses `POST /api/teaser/concept` and makes no image request. New analysis uses OpenAI strict structured outputs plus backend Pydantic validation. Older versions without concepts remain viewable. Saved versions are local to this browser/device and are cleared by **New project**.
+Concept extraction uses `POST /api/teaser/concept` and makes no image request. New analysis uses OpenAI strict structured outputs plus backend Pydantic validation. Older versions without concepts remain viewable. Projects and their saved versions are local to this browser/device and remain available in **Workspace** when you create another project.
 
 
 The desktop workspace has a 40% input panel and a 60% display canvas, with a compact header and no stage indicator. Upload a PDF (or paste text), describe the desired image, set optional research and visual requirements, and generate one image. Chat history and the previous research sidebar are not part
 of this interface; generated image versions have a visual version stack at the far-right edge beside the selected image. The stack shows newest versions first, thumbnail previews, revision notes, timestamps, and parent versions. Select a card to view, download, or refine that version. Versions and the selected card are saved on this device across reloads, with saving/error status displayed above the stack. Smaller screens show a horizontal version strip and stack the input panel above the canvas.
 
-Use **New project** in the header to clear the current paper, brief, image versions, and run history and autosave a blank workspace. The button is unavailable while loading, uploading, or generating.
+Use **Workspace** in the header to name and save the current project, create a new project, or search and reopen saved projects. Each project preserves its paper, concept, parameter locks, settings, and image versions. Changes autosave, and switching saves the outgoing project first. Existing single-project storage migrates automatically. Projects are stored in this browser on this device, not synced to a cloud account. The button is unavailable while loading, uploading, or generating.
 
 Each request generates one image, which can be expanded and downloaded. Each includes a
 “Why this image?” card linking paper claims to planned visual elements, supporting quotes,
@@ -167,3 +167,22 @@ Open `http://localhost:5173`.
   - If edit-specific vars are omitted, it falls back to `AZURE_IMAGE_*`.
   - Important: `dall-e-3` deployments often support generations only. For region edits, use an edit-capable deployment (for example `gpt-image-1`) and set `AZURE_IMAGE_EDIT_API_VERSION` accordingly (commonly `2025-04-01-preview`).
 - The canvas uses React Flow; each artifact is rendered as a draggable node.
+
+### Collaborative concept canvas
+
+The research studio uses three columns: source inputs, scientific concept review, and a React Flow snapshot board. Sign in in the left column (existing credentials are supported; a new username creates an account). Each new image captures the generating user's display name, timestamp, reviewed concept values, and parent snapshot. Select **Inspect & iterate** to refine a snapshot or revisit its saved concept and brief.
+
+Choose **Create shared board**, then **Copy invite link**. A collaborator opens the link, signs in, and chooses **Join** with the prefilled board ID. All participants must connect to the same backend. Board snapshots and card positions persist in SQLite alongside chat history; clients poll every three seconds and retry after connection failures. This supports near-live and asynchronous collaboration; it does not provide live cursors or simultaneous editing of a concept draft. Drafts remain personal, and iteration produces a new snapshot instead of modifying a previous result. Concurrent moves of the same card use the last server write.
+
+Board access is link-based: any authenticated user holding the board ID can read snapshots (including their saved paper/brief) and move cards. Only snapshots attributed to the currently signed-in user are uploaded automatically; legacy snapshots remain local with an unknown creator. Sessions expire after the existing login duration; sign in again to resume synchronization. Local unsynced results remain available in the workspace.
+
+### Shared production deployment (existing Render + GitHub Pages)
+
+- Backend: `https://teaser-generator-3qny.onrender.com`
+- Frontend: `https://luc4xz.github.io/teaser-generator/`
+- GitHub repository variable `VITE_API_BASE_URL` must point to that backend before running **Deploy Frontend To GitHub Pages**. The value is compiled into the build; changing it requires a new build.
+- Render build command: `pip install -r backend/requirements.txt`; start command: `sh backend/scripts/start.sh` (repository root). Use one service instance and one worker because active jobs are in memory.
+- Keep the OpenAI key in Render environment variables. Set `CORS_ORIGINS=https://luc4xz.github.io` (additional origins may be comma-separated; do not include URL paths).
+- For durable collaboration, attach a Render persistent disk at `/var/data`, then set `CHAT_HISTORY_DB_PATH=/var/data/chat_history.db`. If migrating an existing database, back it up and copy it to the disk before changing the path. A repository push does not create a disk or change the service environment. Without the disk, Render's ephemeral filesystem loses shared boards and accounts on restart/redeploy, although local browser snapshots remain.
+- `GET /api/health` reports the deployed commit, supported features, and whether the SQLite path lies under a detected mounted filesystem. Verify disk provisioning in Render as well; mount detection is diagnostic, not a backup guarantee.
+- A deployment interrupts running generation jobs; completed snapshots survive only when the database is on persistent storage.

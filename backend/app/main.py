@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +17,7 @@ from .history_store import get_history_store
 from .llm import LLMClient
 from .teaser import router as teaser_router
 from .workflow import router as workflow_router
+from .boards import router as boards_router, issue_session
 from .memory import build_localized_memory_context, extract_latest_user_message
 from .models import (
     Artifact,
@@ -40,6 +42,7 @@ load_dotenv()
 app = FastAPI(title="Chat Canvas Backend")
 app.include_router(teaser_router)
 app.include_router(workflow_router)
+app.include_router(boards_router)
 history_store = get_history_store()
 
 
@@ -125,7 +128,12 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"status": "ok", "chat_history": "enabled"}
+    database = Path(history_store.db_path).resolve()
+    persistent = any(os.path.ismount(parent) for parent in database.parents if str(parent) != '/')
+    return {"status": "ok", "chat_history": "enabled",
+            "version": "collaboration-v1", "commit": os.getenv("RENDER_GIT_COMMIT", os.getenv("APP_COMMIT", "local")),
+            "features": ["shared-boards", "concept-runs", "snapshot-lineage"],
+            "storage": {"engine": "sqlite", "persistent_mount_detected": persistent}}
 
 
 @app.get("/api/artifacts", response_model=ArtifactListResponse)
@@ -158,6 +166,7 @@ async def auth_login(request: AuthLoginRequest) -> AuthLoginResponse:
         username=str(profile.get("username") or request.username or ""),
         email=str(profile.get("email") or request.email or ""),
         display_name=str(profile.get("display_name") or request.display_name or ""),
+        session_token=issue_session(profile, expires_in_seconds),
         session_expires_at=expires_at.isoformat(),
         expires_in_seconds=expires_in_seconds,
     )

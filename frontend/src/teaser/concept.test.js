@@ -75,3 +75,22 @@ test('concept extraction and image workflow omit retired prompt and its lock',as
  await extractConcept(p,async(_,options)=>{sent=JSON.parse(options.body);return {ok:true,json:async()=>concept};});
  assert.equal(sent.user_prompt,'');
 });
+
+test('concept run polls genuine stages and returns only the completed result',async()=>{
+ const {startConceptRun,pollConceptRun}=await import('./workflow.js');
+ const started=await startConceptRun(project(),async(url,options)=>{
+   assert.ok(url.endsWith('/api/teaser/concept-runs'));
+   assert.equal(JSON.parse(options.body).paper,'Paper A');
+   return {ok:true,json:async()=>({id:'concept-run',status:'queued'})};
+ });
+ const updates=[];
+ const states=[{status:'running',stage:'concept',steps:[{id:'concept',status:'running'}]}, {status:'complete',result:concept}];
+ const result=await pollConceptRun(started.id,run=>updates.push(run),async url=>{
+   assert.ok(url.endsWith('/api/teaser/runs/concept-run'));
+   return {ok:true,json:async()=>states.shift()};
+ },async()=>{});
+ assert.deepEqual(result,concept);
+ assert.deepEqual(updates.map(run=>run.status),['running','complete']);
+ await assert.rejects(pollConceptRun('failed',run=>updates.push(run),async()=>({ok:true,json:async()=>({status:'failed',message:'Analysis unavailable'})})),/Analysis unavailable/);
+ assert.equal(updates.at(-1).status,'failed');
+});

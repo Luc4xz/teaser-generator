@@ -1,5 +1,6 @@
 """Inspectable background runs for the paper → plan → prompt → image loop."""
 import time
+import logging
 import os
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
@@ -9,17 +10,21 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
-from .teaser import TeaserRequest, plan_openai, render_openai_prompt, openai_key, lock_instructions
+from .teaser import TeaserRequest, plan_openai, render_openai_prompt, openai_key, lock_instructions, extract_concept_with_progress
 from .grounding import research_content
 from .free_images import plan_pollinations
 from .hf_images import build_flux_prompt, render_flux_prompt
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 _pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='illustration')
 _lock = Lock()
 _runs = {}
 STEPS = [('source','Read paper & brief'), ('plan','Build visual plan'), ('prompt','Compose drawing prompt'),
          ('render','Generate image'), ('check','Check image file')]
+
+CONCEPT_STEPS = [('source', 'Prepare paper & locked fields'), ('summary', 'Prepare research context'),
+                 ('concept', 'Generate scientific concept'), ('check', 'Validate concept fields')]
 
 class WorkflowRequest(TeaserRequest):
     restart_from: Literal['plan','render'] = 'plan'
@@ -84,6 +89,8 @@ def _work(key, request):
                           revisionFeedback=request.feedback, workflowSteps=deepcopy(run['steps']))
             run.update(status='complete',message='Image ready. Review it, then refine from any saved version.',result=result)
     except Exception as error:
+        if not isinstance(error, HTTPException):
+            logger.exception("Generation run %s failed", key)
         with _lock:
             run = _runs[key]
             for step in run['steps']:
@@ -100,12 +107,16 @@ def start_run(request: WorkflowRequest):
         raise HTTPException(422,'A saved drawing prompt is required to restart rendering.')
     if request.restart_from == 'plan' and not any([request.paper.strip(),request.user_prompt.strip(),request.feedback.strip()]):
         raise HTTPException(422,'Add a paper or image request first.')
+    return _enqueue(request, _work, STEPS)
+
+
+def _enqueue(request, worker, steps):
     with _lock:
         now = time.monotonic()
         for key in list(_runs):
             if _runs[key]['status'] in ('complete','failed') and now-_runs[key]['created']>1800: _runs.pop(key)
         if sum(run['status'] not in ('complete','failed') for run in _runs.values())>=4:
-            raise HTTPException(429,'The demo is already processing several images. Please retry shortly.')
+            raise HTTPException(429,'Several generations are already in progress. Please retry shortly.')
         # Bound completed image storage while never removing active work.
         if len(_runs)>=32:
             for key in list(_runs):
@@ -113,10 +124,10 @@ def start_run(request: WorkflowRequest):
                     _runs.pop(key);break
         key = str(uuid4())
         _runs[key] = {'id':key,'created':now,'status':'queued','stage':None,
-                      'message':'Waiting for a generation slot.', 'steps':[{'id':s,'label':label,'status':'pending'} for s,label in STEPS],
+                      'message':'Waiting for a generation slot.', 'steps':[{'id':s,'label':label,'status':'pending'} for s,label in steps],
                       'events':[],'artifacts':{},'result':None}
         initial = deepcopy(_runs[key])
-    _pool.submit(_work,key,request)
+    _pool.submit(worker,key,request)
     return initial
 
 
@@ -125,3 +136,31 @@ def get_run(key: str):
     with _lock:
         if key not in _runs:raise HTTPException(404,'This run expired or the server restarted. Your saved versions are still available; start a new run.')
         return deepcopy(_runs[key])
+
+
+@router.post('/api/teaser/concept-runs', status_code=202)
+def start_concept_run(request: TeaserRequest):
+    if not request.paper.strip():
+        raise HTTPException(422, 'Add a paper before generating a concept.')
+    openai_key()
+    return _enqueue(request, _concept_work, CONCEPT_STEPS)
+
+
+def _concept_work(key, request):
+    try:
+        result = extract_concept_with_progress(request, lambda stage, message: _update(key, stage, message))
+        with _lock:
+            run = _runs[key]
+            for step in run['steps']:
+                if step['status'] == 'running': step['status'] = 'complete'
+                elif step['status'] == 'pending': step['status'] = 'skipped'
+            run.update(status='complete', message='Concept ready. Review the fields below, then confirm it.', result=result)
+    except Exception as error:
+        if not isinstance(error, HTTPException):
+            logger.exception("Generation run %s failed", key)
+        with _lock:
+            run = _runs[key]
+            for step in run['steps']:
+                if step['status'] == 'running': step['status'] = 'failed'
+            message = str(error.detail) if isinstance(error, HTTPException) else 'Concept generation failed unexpectedly. Your previous concept is safe; try again.'
+            run.update(status='failed', message=message)

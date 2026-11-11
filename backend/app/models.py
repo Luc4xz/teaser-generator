@@ -23,6 +23,7 @@ class AuthLoginResponse(BaseModel):
     username: str
     email: Optional[str] = None
     display_name: str
+    session_token: str = ""
     session_expires_at: str
     expires_in_seconds: int
 

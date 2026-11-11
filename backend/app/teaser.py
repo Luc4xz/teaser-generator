@@ -218,6 +218,11 @@ def structured_analysis(schema, instructions, payload):
 
 @router.post('/api/teaser/concept')
 def extract_concept(request: TeaserRequest):
+    return extract_concept_with_progress(request)
+
+
+def extract_concept_with_progress(request, progress=lambda stage, message: None):
+    progress('source', 'Preparing the paper text and checking locked concept fields.')
     if not request.paper.strip() and not request.user_prompt.strip():
         raise HTTPException(422, 'Add a paper or an image request before extracting a concept.')
     locked_concept = {}
@@ -235,15 +240,18 @@ def extract_concept(request: TeaserRequest):
         except ValidationError:
             raise HTTPException(422, 'A locked concept value is invalid or too long. Unlock and edit it before regenerating.') from None
     if len(locked_concept) == len(ScientificConcept.model_fields):
+        progress('check', 'Validating the preserved concept fields.')
         return locked_concept
     from .grounding import research_content
     paper = research_content(request.paper)
+    progress('summary', 'Preparing research text for analysis; summarizing it if it exceeds the context limit.')
     model = os.getenv('TEASER_TEXT_MODEL') or os.getenv('OPENAI_MODEL', 'gpt-5-nano')
     try:
         with OpenAI(api_key=openai_key(), timeout=120, max_retries=0) as client:
             paper = summarize_paper(client, paper, model)
     except OpenAIError as exc:
         raise HTTPException(502, openai_error_detail(exc)) from None
+    progress('concept', 'Generating the core idea, entities, mechanism, finding, evidence, and limitations.')
     concept = structured_analysis(ScientificConcept,
         'Extract a scientific concept before designing any image. Keep every field concise. '
         'Identify the core idea, entities, mechanism or relationships, finding, evidence, and limitations. '
@@ -256,7 +264,8 @@ def extract_concept(request: TeaserRequest):
         'If a locked claim conflicts with the paper, describe the conflict in an unlocked evidence or limitations field; do not invent support.',
         {'paper': paper, 'user_request': request.user_prompt, 'locked_fields': locked_concept})
     # Enforce preservation independently of whether the model obeyed its instructions.
-    return {**concept.model_dump(), **locked_concept}
+    progress('check', 'Validating the concept structure and preserving locked values.')
+    return ScientificConcept.model_validate({**concept.model_dump(), **locked_concept}).model_dump()
 
 
 def locked_parameter_values(request):

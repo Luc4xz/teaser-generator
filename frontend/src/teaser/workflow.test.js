@@ -28,3 +28,10 @@ test('a failed run exposes its prompt before reporting the error',async()=>{
  await assert.rejects(pollWorkflow('job',run=>{seen=run;},async()=>({ok:true,json:async()=>({status:'failed',message:'Quota',artifacts:{drawingPrompt:'Ready to retry'}})}),async()=>{}),/Quota/);
  assert.equal(seen.artifacts.drawingPrompt,'Ready to retry');
 });
+
+test('concept proxy failures explain backend connectivity while preserving API error details',async()=>{
+ const {startConceptRun}=await import('./workflow.js');
+ const project={paper:'Test paper'};
+ await assert.rejects(startConceptRun(project,async()=>({ok:false,status:500,json:async()=>{throw new SyntaxError('Not JSON');}})),/API server is running and reachable/);
+ await assert.rejects(startConceptRun(project,async()=>({ok:false,status:503,json:async()=>({detail:'API key missing'})})),/API key missing/);
+});
