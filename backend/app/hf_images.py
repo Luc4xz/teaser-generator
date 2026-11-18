@@ -18,8 +18,10 @@ def build_flux_prompt(request, plan):
     positive, exclusions = illustration_prompt(request, plan)
     # Schnell does not expose a negative-prompt parameter in this API.
     prompt = positive + '. Draw the requested objects and relationships, not a person or portrait. Avoid author photographs, institutional logos, watermarks and dense poster text.'
-    if request.visual.density == 'none':
+    if request.visual.density in ('none', 'editable'):
         prompt += ' No text or labels anywhere in the image.'
+    if request.visual.density == 'editable':
+        prompt += ' Draw no numbers or annotation arrows. Leave the bottom fifth clear for editable labels.'
     if request.feedback.strip():
         prompt = 'Revision instructions (take precedence): ' + request.feedback.strip() + '\nBase visual direction: ' + prompt
     return prompt

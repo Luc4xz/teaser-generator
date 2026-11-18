@@ -15,25 +15,3 @@ export function conceptIsCurrent(project) {
 export function conceptIsReady(project) {
   return conceptIsCurrent(project) && CONCEPT_FIELDS.every(([key,,limit]) => typeof project.scientificConcept[key] === 'string' && project.scientificConcept[key].trim() && project.scientificConcept[key].length <= limit);
 }
-
-export const CONCEPT_DRAG_TYPE = 'application/x-scientific-concept';
-export function dockConcept(project) {
-  if (!conceptIsReady(project) || project.conceptConfirmed) return project;
-  const parameterLocks = {...project.parameterLocks};
-  const conceptLocksBeforeDock = {};
-  for (const [key] of CONCEPT_FIELDS) {
-    const name = `scientificConcept.${key}`;
-    conceptLocksBeforeDock[name] = !!parameterLocks[name];
-    parameterLocks[name] = true;
-  }
-  return {...project, conceptConfirmed:true, conceptLocksBeforeDock, parameterLocks};
-}
-export function undockConcept(project) {
-  if (!project.conceptConfirmed) return project;
-  const parameterLocks = {...project.parameterLocks};
-  for (const [key] of CONCEPT_FIELDS) {
-    const name = `scientificConcept.${key}`;
-    parameterLocks[name] = !!project.conceptLocksBeforeDock?.[name];
-  }
-  return {...project, conceptConfirmed:false, conceptLocksBeforeDock:null, parameterLocks};
-}

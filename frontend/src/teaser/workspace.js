@@ -1,12 +1,11 @@
-import { lockedParameters } from './locks.js';
+import { authHeaders, checkSessionResponse } from './session.js';
 import { conceptIsReady } from './concept.js';
 // Core generation helpers: one paper + one request, with incremental image results.
 export const API_BASE = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 export function generationPayload(project) {
   return {
+    text_model: project.textModel || '', image_model: project.imageModel || '',
     paper: project.paper || '', title: '',
-    parameter_locks: lockedParameters(project),
-    previous_concept: project.scientificConcept || {},
     scientific_concept: conceptIsReady(project) ? project.scientificConcept : null,
     user_prompt: project.userPrompt ?? project.insight ?? '',
     preferences: project.preferences || '', reaction: '',
@@ -23,8 +22,9 @@ export async function generateImages(project, count, onImage, request = fetch, o
   // available even if a later request fails. Every image uses the same input snapshot.
   for (let i = 0; i < count; i += 1) {
     const response = await request(`${API_BASE}/api/teaser/generate`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(payload),
     });
+    checkSessionResponse(response);
     let result = await response.json().catch(() => ({}));
     if (!response.ok) {
       const detail = typeof result.detail === 'string' ? result.detail : Array.isArray(result.detail)
@@ -37,7 +37,8 @@ export async function generateImages(project, count, onImage, request = fetch, o
       if (++polls > 300) throw new Error('The image queue is taking too long. Please retry later.');
       onProgress(result);
       await pause(4000);
-      const status = await request(`${API_BASE}/api/teaser/jobs/${encodeURIComponent(result.jobId)}`);
+      const status = await request(`${API_BASE}/api/teaser/jobs/${encodeURIComponent(result.jobId)}`, {headers:authHeaders()});
+      checkSessionResponse(status);
       result = await status.json().catch(() => ({}));
       if (!status.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Could not check image generation. Please retry.');
     }

@@ -1,0 +1,126 @@
+:root {
+  color-scheme: light;
+  --palette-graphite: #292929;
+  --palette-ocean: #25628e;
+  --palette-forest: #356448;
+  --palette-plum: #714779;
+  --ui-ink: #292929;
+  --ui-text: #555;
+  --ui-muted: #686868;
+  --ui-border-strong: #ccc;
+  --ui-border: #e2e2e2;
+  --ui-soft: #efefef;
+  --ui-surface: #fff;
+  --ui-canvas: var(--light-canvas, #f6f6f6);
+  --ui-accent: var(--light-accent, var(--palette-graphite));
+  --ui-on-accent: #fff;
+  --ui-panel: color-mix(in srgb, var(--ui-surface) 53%, var(--ui-canvas));
+  --ui-accent-soft: color-mix(in srgb, var(--ui-surface) 89%, var(--ui-accent));
+  --ui-accent-hover: color-mix(in srgb, var(--ui-accent) 84%, var(--ui-surface));
+  --ui-accent-overlay: color-mix(in srgb, var(--ui-accent) 16%, transparent);
+  --ui-minimap-mask: color-mix(in srgb, var(--ui-canvas) 75%, transparent);
+}
+
+:root[data-studio-palette="ocean"] {
+  --light-accent: var(--palette-ocean);
+  --light-canvas: #f0f6fb;
+  --dark-accent: #9cccfa;
+  --dark-canvas: #121b24;
+  --dark-surface: #1c2835;
+}
+:root[data-studio-palette="forest"] {
+  --light-accent: var(--palette-forest);
+  --light-canvas: #f0f7f2;
+  --dark-accent: #a8ddb9;
+  --dark-canvas: #151e19;
+  --dark-surface: #1e2c23;
+}
+:root[data-studio-palette="plum"] {
+  --light-accent: var(--palette-plum);
+  --light-canvas: #f8f1f8;
+  --dark-accent: #e3b8e9;
+  --dark-canvas: #211825;
+  --dark-surface: #2d2232;
+}
+
+:root[data-studio-mode="dark"] {
+  color-scheme: dark;
+  --ui-ink: #f2f2f2;
+  --ui-text: #d4d4d4;
+  --ui-muted: #adadad;
+  --ui-border-strong: #646464;
+  --ui-border: #484848;
+  --ui-soft: color-mix(in srgb, var(--ui-surface) 90%, #fff);
+  --ui-surface: var(--dark-surface, #242424);
+  --ui-canvas: var(--dark-canvas, #171717);
+  --ui-accent: var(--dark-accent, #e0e0e0);
+  --ui-on-accent: #171717;
+}
+
+.studio-mode-toggle[aria-checked="true"] {
+  color: var(--ui-accent);
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+.studio-palette-options { display: flex; flex-wrap: wrap; gap: 7px; }
+.studio-palette-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.studio-palette-button:hover { background: var(--ui-soft); }
+.studio-palette-button[aria-pressed="true"] {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+  color: var(--ui-ink);
+}
+.studio-palette-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--ui-border-strong);
+}
+@media (max-width: 510px) {
+  .workspace-header { gap: 8px; padding-inline: 10px; }
+  .studio-topbar-actions { gap: 4px; }
+  .studio-topbar-actions .new-project-button { width: 30px; gap: 3px; }
+  .studio-brand { gap: 6px; font-size: 12.5px; }
+  .studio-brand-icon { width: 24px; height: 24px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-studio-ripple]::view-transition { pointer-events: none; }
+  :root[data-studio-ripple]::view-transition-group(root) { animation: none; }
+  :root[data-studio-ripple]::view-transition-image-pair(root) { isolation: isolate; }
+  :root[data-studio-ripple]::view-transition-old(root) {
+    animation: none;
+    mix-blend-mode: normal;
+    z-index: 0;
+  }
+  :root[data-studio-ripple]::view-transition-new(root) {
+    animation: studio-theme-reveal 600ms cubic-bezier(.22,.65,.3,1) both;
+    mix-blend-mode: normal;
+    z-index: 1;
+  }
+}
+@keyframes studio-theme-reveal {
+  from { clip-path: circle(0 at var(--studio-ripple-x) var(--studio-ripple-y)); }
+  to { clip-path: circle(var(--studio-ripple-end) at var(--studio-ripple-x) var(--studio-ripple-y)); }
+}
+
+.studio-theme-ripple-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  background: var(--ui-accent-overlay);
+  animation: studio-theme-reveal 560ms ease-out both, studio-fallback-fade 560ms ease-out both;
+}
+@keyframes studio-fallback-fade { from { opacity: 1; } to { opacity: 0; } }

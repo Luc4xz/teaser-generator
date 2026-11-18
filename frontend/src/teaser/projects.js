@@ -6,10 +6,10 @@ export function identifyProject(project) {
 export function createProject(name='Untitled project') {
   const blank = blankProject();
   const visual = Object.fromEntries([...Object.keys(blank.visual), 'representation', 'purpose'].map(key => [key, '']));
-  return identifyProject({...blank,visual,projectName:name.trim() || 'Untitled project',userPrompt:'',canvasImages:[],activeCanvasId:null,pendingRun:null,scientificConcept:null,conceptConfirmed:false,conceptSource:'',parameterLocks:{},conceptLocksBeforeDock:null});
+  return identifyProject({...blank,visual:{...visual,density:'editable'},projectName:name.trim() || 'Untitled project',userPrompt:'',canvasImages:[],activeCanvasId:null,pendingRun:null,scientificConcept:null,conceptSource:''});
 }
 export function projectSummary(project, updatedAt) {
   return {id:project.projectId,name:project.projectName,createdAt:project.createdAt,updatedAt,
     fileName:project.fileName || '',versionCount:project.canvasImages?.length || 0,
-    hasConcept:!!project.scientificConcept,conceptConfirmed:!!project.conceptConfirmed};
+    hasConcept:!!project.scientificConcept};
 }

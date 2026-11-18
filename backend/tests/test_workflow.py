@@ -1,8 +1,9 @@
 import unittest
 import os
+from concurrent.futures import Future
 from unittest.mock import patch
 from fastapi import HTTPException
-from backend.app.workflow import WorkflowRequest, start_run, get_run, _work, _runs, _lock
+from backend.app.workflow import WorkflowRequest, start_run, get_run, cancel_run, _work, _runs, _lock
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
@@ -97,3 +98,22 @@ class WorkflowTests(unittest.TestCase):
         for _ in range(4):self.queued(WorkflowRequest(user_prompt='Leaf'))
         with self.assertRaises(HTTPException) as e:self.queued(WorkflowRequest(user_prompt='Leaf'))
         self.assertEqual(e.exception.status_code,429)
+
+    def test_late_image_result_is_discarded_after_stop(self):
+        owner = {'user_id': 'author'}
+        request = WorkflowRequest(restart_from='render', drawing_prompt='Draw a leaf')
+        future = Future()
+        future.set_running_or_notify_cancel()
+        with patch('backend.app.workflow._pool.submit', return_value=future):
+            key = start_run(request, owner)['id']
+
+        def render(prompt, plan, progress):
+            self.assertEqual(cancel_run(key, owner)['status'], 'cancelled')
+            return {**plan, 'image': 'data:image/png;base64,eA=='}
+
+        with patch('backend.app.workflow.render_flux_prompt', side_effect=render):
+            _work(key, request)
+        run = get_run(key)
+        self.assertEqual(run['status'], 'cancelled')
+        self.assertIsNone(run['result'])
+        self.assertEqual(next(step['status'] for step in run['steps'] if step['id'] == 'render'), 'cancelled')

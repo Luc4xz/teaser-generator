@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inputSnapshot,refinementPayload,pollWorkflow,addVersion} from './workflow.js';
+import {inputSnapshot,refinementPayload,pollWorkflow,pollConceptRun,addVersion,RunStoppedError} from './workflow.js';
 
 test('refinement uses an immutable input snapshot without copying image history',()=>{
  const project={paper:'Original paper',userPrompt:'Draw leaves',visual:{layout:'split'},canvasImages:[{image:'large'}]};
@@ -27,6 +27,17 @@ test('a failed run exposes its prompt before reporting the error',async()=>{
  let seen;
  await assert.rejects(pollWorkflow('job',run=>{seen=run;},async()=>({ok:true,json:async()=>({status:'failed',message:'Quota',artifacts:{drawingPrompt:'Ready to retry'}})}),async()=>{}),/Quota/);
  assert.equal(seen.artifacts.drawingPrompt,'Ready to retry');
+});
+
+test('cancelled runs never return a result, and abandoned polling ignores late responses', async()=>{
+ const cancelled = async()=>({ok:true,json:async()=>({status:'cancelled',message:'Generation stopped.'})});
+ await assert.rejects(pollConceptRun('concept',()=>{},cancelled),RunStoppedError);
+ const controller = new AbortController();
+ const lateImage = async()=>{
+   controller.abort();
+   return {ok:true,json:async()=>({status:'complete',result:{image:'data:image/png;base64,eA=='}})};
+ };
+ await assert.rejects(pollWorkflow('image',()=>assert.fail('An abandoned status reached the UI'),lateImage,undefined,controller.signal),{name:'AbortError'});
 });
 
 test('concept proxy failures explain backend connectivity while preserving API error details',async()=>{

@@ -31,49 +31,24 @@ test('concept extraction calls only concept endpoint and exposes API errors',asy
  await assert.rejects(extractConcept(project(),async()=>({ok:false,json:async()=>({detail:'Credits exhausted'})})),/Credits exhausted/);
 });
 
-test('docking confirms the concept and locks all fields; returning restores prior locks',async()=>{
- const {dockConcept,undockConcept}=await import('./concept.js');
- const p={...project(),parameterLocks:{'scientificConcept.evidence':true,'visual.layout':true}};
- const docked=dockConcept(p);
- assert.equal(docked.conceptConfirmed,true);
- for(const [key] of CONCEPT_FIELDS)assert.equal(docked.parameterLocks[`scientificConcept.${key}`],true);
- assert.equal(p.parameterLocks['scientificConcept.finding'],undefined);
- assert.equal(dockConcept(docked),docked);
- const returned=undockConcept(docked);
- assert.equal(returned.conceptConfirmed,false);
- assert.equal(returned.parameterLocks['scientificConcept.evidence'],true);
- assert.equal(returned.parameterLocks['scientificConcept.finding'],false);
- assert.equal(returned.parameterLocks['visual.layout'],true);
- assert.deepEqual(returned.scientificConcept,p.scientificConcept);
- const snap=inputSnapshot(docked);
- assert.equal(snap.conceptConfirmed,true);
- assert.deepEqual(snap.conceptLocksBeforeDock,docked.conceptLocksBeforeDock);
-});
-test('stale and incomplete concepts cannot be docked',async()=>{
- const {dockConcept}=await import('./concept.js');
- const stale={...project(),paper:'Changed source'};
- assert.equal(dockConcept(stale),stale);
- const incomplete=project();incomplete.scientificConcept.finding='';
- assert.equal(dockConcept(incomplete),incomplete);
-});
-
 test('legacy confirmed concepts ignore retired prompt changes but still detect paper changes',()=>{
  const p={...project(),conceptConfirmed:true,conceptSource:JSON.stringify(['Paper A','Old request']),userPrompt:'Changed request'};
  assert.equal(conceptIsReady(p),true);
  assert.equal(conceptIsReady({...p,paper:'Paper B'}),false);
  assert.equal(conceptIsReady({...p,conceptSource:'bad data'}),false);
 });
-test('concept extraction and image workflow omit retired prompt and its lock',async()=>{
+test('concept extraction and image workflow ignore saved legacy locks',async()=>{
  const {refinementPayload}=await import('./workflow.js');
  const p={...project(),userPrompt:'Conflicts with concept',parameterLocks:{userPrompt:true,'scientificConcept.finding':true}};
  const payload=refinementPayload(p);
  assert.equal(payload.user_prompt,'');
  assert.deepEqual(payload.scientific_concept,concept);
- assert.equal(payload.parameter_locks.includes('userPrompt'),false);
- assert.equal(payload.parameter_locks.includes('scientificConcept.finding'),true);
+ assert.equal('parameter_locks' in payload,false);
+ assert.equal('parameterLocks' in inputSnapshot(p),false);
  let sent;
  await extractConcept(p,async(_,options)=>{sent=JSON.parse(options.body);return {ok:true,json:async()=>concept};});
  assert.equal(sent.user_prompt,'');
+ assert.equal('parameter_locks' in sent,false);
 });
 
 test('concept run polls genuine stages and returns only the completed result',async()=>{

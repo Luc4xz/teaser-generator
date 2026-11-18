@@ -4,97 +4,74 @@ A focused workspace for turning research papers and user requests into illustrat
 
 ## Current project workflow
 
-The OpenAI workflow now separates **paper → scientific concept → visual mapping → drawing prompt → image**:
+1. **Sign in first.** The workspace, upload control, and generation controls are unavailable until the backend validates the session. An expired or rejected session returns to sign-in. Existing username/password registration is retained.
+2. **Left column — paper and constraints.** Upload a PDF or paste paper text, choose image direction, audience and constraints, then click **Generate concept** at the bottom.
+3. **Middle column — concept and snapshot review.** Expand **Scientific concept** to edit the six fields, then click **Generate image** at the bottom. A changed source paper requires concept regeneration. **Selected snapshot** shows the selected image’s saved concept, visual mapping, and refinement controls. Both sections can be folded.
+4. **Right column — image canvas.** Each generation adds a version to the canvas. Select a card or click **Inspect & iterate** to open it in the review column. A refinement uses the currently selected text and image models. A retry preserves the failed run's selections and reuses its drawing prompt when available.
 
-1. Upload or paste the paper. The scientific concept is the source of the image subject; there is no separate free-text subject prompt.
-2. After a paper is uploaded or pasted, the **Generate concept** button on the left becomes enabled. The resulting concept appears as a compact artifact on the right; expand **Review & edit** to edit six required fields: core concept, entities, relationships/mechanism, main finding, evidence, and limitations. Missing evidence must be stated explicitly; extraction does not verify claims.
-3. Drag the reviewed concept card into the destination beside the paper upload card, or click **Confirm & move left**. This confirms the concept, locks all six fields, and enables image generation. The compact confirmed card has a **Return to canvas to edit** action, which restores the previous individual field locks. Confirmation and locks persist across reloads. Set image direction and constraints, then generate. Changing the source paper makes the concept stale and requires re-extraction; changing style does not.
-4. The backend validates a structured visual plan that maps named concept fields to depictions and explains each connection. It compiles six fixed drawing-prompt sections: scientific concept; evidence and limits; visual mapping; composition; style and image text; exclusions. Required fields, field lengths, mapping references, refusal, and incomplete model outputs are checked before image generation.
-5. Each version saves its concept, visual mapping, prompt sections, and exact rendering prompt. Inspect these on the right or use **Revisit paper & brief** to restore and edit the version’s concept in the right-hand artifact panel. Rendering-only revisions use saved or manually edited instructions; their mappings are not rebuilt or claimed to be revalidated.
+Projects and drafts autosave locally in IndexedDB. Shared boards sync published image snapshots. Switching accounts does not erase device-local projects. Workspace provides project naming, creation and reopening. Desktop uses three independently scrolling columns with generation actions pinned below the first two; mobile stacks them in workflow order.
 
-Each source, brief, visual setting, and concept field has a **Keep / Change** lock toggle. Keep prevents edits and preserves the value when restoring or refining a version. Concept regeneration replaces only unlocked fields; locked fields are preserved by the backend even if the model returns different values. With all six concept fields locked, extraction returns them without another model call. Lock states autosave and are included in version snapshots. Image prompts explicitly give locked settings priority over conflicting revision feedback; generated pixels still require review.
+Use the left icon rail to reopen folded panels. Drag a panel's grip onto the top or bottom half of the other panel to share a column, or click the grip for placement options. Fold both panels to use the full canvas. The Control Center icon and avatar stack both open the page for contributions and modification history. AI Chat opens its own page for previewing the interface.
 
-Concept extraction uses `POST /api/teaser/concept` and makes no image request. New analysis uses OpenAI strict structured outputs plus backend Pydantic validation. Older versions without concepts remain viewable. Projects and their saved versions are local to this browser/device and remain available in **Workspace** when you create another project.
+In **Selected snapshot**, open **Edit figure** to add or move labels, arrows, and connectors. Choose **Draw** to add freehand strokes with an adjustable color and width. Save the edits as a new version. For new images, choose **Editable labels** in the image direction settings to get suggested text as editable layers when you open the editor.
 
+To request approval, invite a coauthor to the shared board. Once they open it, select them in **Request review** and confirm the caption and alt text. The assigned reviewer can comment, approve, or request changes in **Control Center → Figure reviews**. Each edited version needs its own approval. **Export approved figure** downloads a ZIP with the PNG, caption, and alt text.
 
-The desktop workspace has a 40% input panel and a 60% display canvas, with a compact header and no stage indicator. Upload a PDF (or paste text), describe the desired image, set optional research and visual requirements, and generate one image. Chat history and the previous research sidebar are not part
-of this interface; generated image versions have a visual version stack at the far-right edge beside the selected image. The stack shows newest versions first, thumbnail previews, revision notes, timestamps, and parent versions. Select a card to view, download, or refine that version. Versions and the selected card are saved on this device across reloads, with saving/error status displayed above the stack. Smaller screens show a horizontal version strip and stack the input panel above the canvas.
+The backend validates the six concept fields and the visual plan, then compiles scientific concept, evidence and limits, visual mapping, composition, style, and exclusions into the drawing prompt. Concept extraction does not generate an image. Scientific claims and generated pixels still need human review. Failed runs preserve prior versions and expose the actual stage and retry controls.
 
-Use **Workspace** in the header to name and save the current project, create a new project, or search and reopen saved projects. Each project preserves its paper, concept, parameter locks, settings, and image versions. Changes autosave, and switching saves the outgoing project first. Existing single-project storage migrates automatically. Projects are stored in this browser on this device, not synced to a cloud account. The button is unavailable while loading, uploading, or generating.
+### Text and image model selection
 
-Each request generates one image, which can be expanded and downloaded. Each includes a
-“Why this image?” card linking paper claims to planned visual elements, supporting quotes,
-and the actual drawing prompt. These explain the plan, not a verified assessment of the
-rendered image. If source-backed planning fails, generation still attempts a clearly
-labelled creative interpretation. The previous image remains available if a new request fails.
+Open **Settings** in the top bar to select the text and image models independently:
 
-Additional controls are collapsed by default: **Image direction** selects abstract,
-illustrated, or realistic representation and an explanatory, thought-provoking, or balanced
-purpose; **Audience & constraints** holds audience, facts to preserve, and exclusions.
-The reviewed scientific concept owns the subject and mechanism. Retired free-text subject prompts are not sent by the concept or version workflow.
-Publication front matter and common metadata are filtered before planning. Grounded drawing
-instructions contain visual mappings and claims; fallback prompts use at most three short
-research excerpts instead of the opening paper page. This extractive fallback remains unverified.
-The explanation card shows cited quotes or short fallback context, not the full source dump.
+| Purpose | Providers | Server API |
+| --- | --- | --- |
+| Text: long-paper summarization, concept extraction, visual planning | OpenAI, Azure OpenAI, Anthropic, Gemini | OpenAI/Azure chat completions, Anthropic Messages with a required structured tool, Google Gen AI `generate_content` |
+| Images | OpenAI GPT Image, Azure GPT Image deployments, Gemini native image models | OpenAI Images, Azure Images SDK, Google Gen AI image output |
 
-### Image generation
+Every text provider's structured response is validated with the same Pydantic schemas. The Gemini image adapter uses native `generate_content` models (for example `gemini-2.5-flash-image`), not Imagen. OpenAI/Azure image entries must use GPT Image models, not DALL-E models with different parameters. Configure model IDs/deployment names available to your provider account.
 
-To use OpenAI for the current version workflow, set these values in the root `.env` and restart the backend:
+Install dependencies and restart the API after updating configuration:
+
+```bash
+pip install -r backend/requirements.txt
+uvicorn backend.app.main:app --reload --port 8000
+```
+
+With no explicit model registry, the existing `TEASER_TEXT_MODEL` (or `OPENAI_MODEL`) and `OPENAI_IMAGE_MODEL` create the default OpenAI menu entries. Add other providers using:
 
 ```dotenv
-TEASER_PROVIDER=openai
-OPENAI_API_KEY=your-api-key
+OPENAI_API_KEY=...
 TEASER_TEXT_MODEL=gpt-5-nano
 OPENAI_IMAGE_MODEL=gpt-image-1-mini
 OPENAI_IMAGE_SIZE=1024x1024
 OPENAI_IMAGE_QUALITY=low
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_API_VERSION=2025-04-01-preview
+AZURE_OPENAI_TEXT_MODEL=your-text-deployment
+AZURE_OPENAI_IMAGE_MODEL=your-gpt-image-deployment
+ANTHROPIC_API_KEY=...
+ANTHROPIC_TEXT_MODEL=your-enabled-claude-model
+GEMINI_API_KEY=...
+GEMINI_TEXT_MODEL=your-enabled-text-model
+GEMINI_IMAGE_MODEL=gemini-2.5-flash-image
 ```
 
-OpenAI mode uses OpenAI for both paper analysis and image generation, with no public-demo fallback. The key stays on the backend. Progress, saved versions, refinement, and retries work with either OpenAI or FLUX. Rendering retries reuse the saved drawing prompt without repeating analysis. API billing, access, and rate-limit errors appear in the workspace; no image version is saved on failure.
+To offer several models from one provider, or assign a separate API key to each model, set `TEASER_MODELS_JSON` to a JSON array. It **replaces** the defaults. For example:
 
-The default `TEASER_PROVIDER=flux-demo` calls the official Black Forest Labs
-[FLUX.1-schnell public Space](https://huggingface.co/spaces/black-forest-labs/FLUX.1-schnell)
-through its Gradio `/gradio_api/call/infer` API. The demo needs no key in the tested setup,
-but availability, quotas, and authentication requirements can change. It renders 768×512
-images in four steps. It is an illustration model, not a scientific verification system.
+```dotenv
+TEASER_MODELS_JSON='[{"id":"fast-text","label":"GPT-5 nano","kind":"text","provider":"openai","model":"gpt-5-nano","key_env":"OPENAI_TEXT_KEY"},{"id":"general-text","label":"GPT-4o","kind":"text","provider":"openai","model":"gpt-4o","key_env":"OPENAI_TEXT_KEY"},{"id":"image-mini","label":"GPT Image mini","kind":"image","provider":"openai","model":"gpt-image-1-mini","key_env":"OPENAI_IMAGE_KEY"},{"id":"image-standard","label":"GPT Image 1","kind":"image","provider":"openai","model":"gpt-image-1","key_env":"OPENAI_IMAGE_KEY"}]'
+OPENAI_TEXT_KEY=...
+OPENAI_IMAGE_KEY=...
+```
 
-The image API receives a compact subject-first drawing prompt, not the raw paper or the
-long planning essay. Portraits, people, author photographs and institutional logos are excluded
-in the instructions. The rationale card exposes the exact instructions submitted. Common
-metadata is filtered out before paper planning, and fallback context is limited to short excerpts.
-The paper planner still uses Pollinations text with a local fallback if that service fails.
-No other image provider is silently substituted on failure.
+Registry fields: unique `id`, display `label`, `kind` (`text`/`image`), `provider` (`openai`/`azure`/`anthropic`/`gemini`), provider `model`, and `key_env`. Azure entries may also specify `endpoint_env` and `api_version_env` to target different resources. Anthropic entries are text-only. Entries with missing keys or Azure endpoints are omitted from menus. A configured key does not guarantee the account has access to every listed model; provider failures are reported without substituting another model.
 
-The workspace uses `POST /api/teaser/runs` to start background generation and polls
-`GET /api/teaser/runs/{id}` for actual stages: source processing, visual planning, prompt
-composition, provider rendering, and image-file validation. Completed plans and prompts
-are inspectable while the provider is working. No fabricated percentages are shown.
-The legacy `POST /api/teaser/generate` still returns the finished image. The backend reads the Gradio event
-stream with bounded waits and rejects quota errors, unexpected download URLs, and invalid
-image bytes. Use public demo papers and review scientific details in the output.
+The browser obtains only IDs, labels, and providers from authenticated `GET /api/teaser/models`. Generation sends `text_model` and `image_model` IDs, never keys, endpoints, or SDK settings. The backend rejects unknown IDs and modality mismatches before starting work. All `/api/teaser/*` routes require a valid bearer session, including polling. `GET /api/auth/session` verifies saved sessions.
 
-Optional providers remain explicitly configurable:
+The current UI always submits explicit model selections. `TEASER_PROVIDER` remains available for older clients that omit `image_model` (legacy FLUX/OpenAI workflow and legacy Horde/Pollinations generation). It does not override an explicit image selection. Active runs are in backend memory; a server restart requires starting them again, while local saved versions remain available.
 
-- `aihorde`: queued community rendering with `AI_HORDE_MODEL=stable_diffusion` or another
-  available model, optional `AI_HORDE_API_KEY`. Anonymous Horde generations are shared by
-  the provider; registered requests use `shared=false`. The UI polls `/api/teaser/jobs/{id}`.
-- `pollinations`: legacy image route, not the default.
-- `openai`: requires an API key and API credits, never an automatic fallback.
-
-The desktop layout fits the viewport with a 56px header containing both panel titles and independently scrollable
-40/60 panels. Image-direction settings are expanded by default; audience constraints and evidence links
-remain collapsible. The Generate button stays pinned below the scrolling input area. Inputs, images, input snapshots, and version lineage autosave in IndexedDB. Each generation
-adds a version instead of replacing the previous image. Selecting an earlier version lets
-users rebuild its visual plan with feedback, edit its saved drawing prompt and rerender,
-or restore its paper and brief for broader changes. FLUX renders new pixels from instructions;
-this is not image-to-image editing. Prompt-only rerenders are explicitly not revalidated
-against the paper. Failed rendering preserves the composed prompt for retry.
-Active run IDs are saved so a page refresh reconnects. Runs live in backend memory; after
-a server restart, saved versions remain but active runs must be started again.
-
-Project article: [latest overview](docs/project-overview.md) · [plain text](docs/project-overview.txt).
-
-Implementation: `frontend/src/teaser/`, `backend/app/teaser.py`, `backend/app/free_images.py`, and `backend/app/grounding.py`.
+Provider references: [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=chat), [Anthropic Messages](https://platform.claude.com/docs/en/api/python/messages/create), [Google Gen AI SDK](https://github.com/googleapis/python-genai), [Gemini image generation](https://ai.google.dev/gemini-api/docs/image-generation), [Azure image generation](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/dall-e).
 
 Validation:
 
@@ -172,7 +149,7 @@ Open `http://localhost:5173`.
 
 The research studio uses three columns: source inputs, scientific concept review, and a React Flow snapshot board. Sign in in the left column (existing credentials are supported; a new username creates an account). Each new image captures the generating user's display name, timestamp, reviewed concept values, and parent snapshot. Select **Inspect & iterate** to refine a snapshot or revisit its saved concept and brief.
 
-Choose **Create shared board**, then **Copy invite link**. A collaborator opens the link, signs in, and chooses **Join** with the prefilled board ID. All participants must connect to the same backend. Board snapshots and card positions persist in SQLite alongside chat history; clients poll every three seconds and retry after connection failures. This supports near-live and asynchronous collaboration; it does not provide live cursors or simultaneous editing of a concept draft. Drafts remain personal, and iteration produces a new snapshot instead of modifying a previous result. Concurrent moves of the same card use the last server write.
+Open **Collaboration**, choose **Create shared board**, then **Copy invite link**. A collaborator opens the link, signs in, and chooses **Join** with the prefilled board ID. All participants must connect to the same backend. Board snapshots and card positions persist in SQLite alongside chat history; clients poll every three seconds and retry after connection failures. This supports near-live and asynchronous collaboration; it does not provide live cursors or simultaneous editing of a concept draft. Drafts remain personal, and iteration produces a new snapshot instead of modifying a previous result. Concurrent moves of the same card use the last server write.
 
 Board access is link-based: any authenticated user holding the board ID can read snapshots (including their saved paper/brief) and move cards. Only snapshots attributed to the currently signed-in user are uploaded automatically; legacy snapshots remain local with an unknown creator. Sessions expire after the existing login duration; sign in again to resume synchronization. Local unsynced results remain available in the workspace.
 

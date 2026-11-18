@@ -33,6 +33,17 @@ class ConceptTests(unittest.TestCase):
         self.assertEqual(result['visualMapping']['labels'],[])
         self.assertIn('No text or labels.',result['drawingBrief'])
 
+    def test_editable_mode_keeps_label_suggestions_out_of_the_drawing_prompt(self):
+        labels = ['Editable legend sample']
+        request = TeaserRequest(scientific_concept=CONCEPT, visual={'density': 'editable'})
+        plan = VisualPlan.model_validate({**PLAN, 'labels': labels})
+        with patch('backend.app.teaser.structured_analysis', return_value=plan):
+            result = plan_openai(request)
+        self.assertEqual(result['visualMapping']['labels'], labels)
+        self.assertNotIn(labels[0], result['drawingBrief'])
+        self.assertIn('Keep the bottom fifth of the image clear', result['drawingBrief'])
+        self.assertIn('Do not render text, numbers, labels, or annotation arrows.', result['drawingBrief'])
+
     def test_concept_extraction_never_renders_an_image(self):
         with patch('backend.app.teaser.OpenAI'),patch('backend.app.teaser.structured_analysis',return_value=ScientificConcept.model_validate(CONCEPT)),patch('backend.app.teaser.render_openai_prompt') as render:
             self.assertEqual(extract_concept(TeaserRequest(user_prompt='Leaf gas exchange')),CONCEPT)
@@ -44,13 +55,13 @@ class ConceptTests(unittest.TestCase):
 
     def test_structured_output_is_validated_before_use(self):
         choice=SimpleNamespace(finish_reason='stop',message=SimpleNamespace(content='{"core_concept":"Leaf"}',refusal=None))
-        with patch('backend.app.teaser.OpenAI') as factory:
+        with patch('backend.app.model_providers.OpenAI') as factory:
             factory.return_value.__enter__.return_value.chat.completions.create.return_value=SimpleNamespace(choices=[choice])
             with self.assertRaises(HTTPException) as error:structured_analysis(ScientificConcept,'Extract concept',{})
         self.assertEqual(error.exception.status_code,502)
 
     def test_truncation_does_not_produce_partial_plan(self):
         choice=SimpleNamespace(finish_reason='length',message=SimpleNamespace(content='{}',refusal=None))
-        with patch('backend.app.teaser.OpenAI') as factory:
+        with patch('backend.app.model_providers.OpenAI') as factory:
             factory.return_value.__enter__.return_value.chat.completions.create.return_value=SimpleNamespace(choices=[choice])
             with self.assertRaises(HTTPException):structured_analysis(VisualPlan,'Plan',{})

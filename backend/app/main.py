@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from .artifacts import list_artifacts
@@ -17,7 +17,7 @@ from .history_store import get_history_store
 from .llm import LLMClient
 from .teaser import router as teaser_router
 from .workflow import router as workflow_router
-from .boards import router as boards_router, issue_session
+from .boards import router as boards_router, issue_session, require_session
 from .memory import build_localized_memory_context, extract_latest_user_message
 from .models import (
     Artifact,
@@ -140,6 +140,11 @@ async def health() -> dict:
 async def get_artifacts() -> ArtifactListResponse:
     items = [Artifact(**item) for item in list_artifacts()]
     return ArtifactListResponse(items=items)
+
+
+@app.get("/api/auth/session")
+def auth_session(profile=Depends(require_session)):
+    return {"user_id": profile["user_id"], "display_name": profile.get("display_name") or profile["username"]}
 
 
 @app.post("/api/auth/login", response_model=AuthLoginResponse)

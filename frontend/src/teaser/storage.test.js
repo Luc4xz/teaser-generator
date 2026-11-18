@@ -37,7 +37,7 @@ test('existing workspace migrates and projects survive save, create, and reopen'
   assert.equal(catalog.length, 1);
   assert.equal(catalog[0].name, 'Renamed research');
   assert.equal(catalog[0].versionCount, 1);
-  assert.equal(catalog[0].conceptConfirmed, true);
+  assert.equal(catalog[0].hasConcept, true);
   assert.equal('paper' in catalog[0], false);
   assert.equal('canvasImages' in catalog[0], false);
 
@@ -45,7 +45,7 @@ test('existing workspace migrates and projects survive save, create, and reopen'
   assert.notEqual(fresh.projectId, migrated.projectId);
   assert.notEqual(createProject().projectId, fresh.projectId);
   assert.equal(fresh.paper, '');
-  assert.equal(fresh.conceptConfirmed, false);
+  assert.equal(fresh.scientificConcept, null);
   assert.deepEqual(fresh.canvasImages, []);
   assert.equal(fresh.pendingRun, null);
   const outgoing = { ...migrated, projectName: 'Final name', paper: 'Latest unsaved edits' };

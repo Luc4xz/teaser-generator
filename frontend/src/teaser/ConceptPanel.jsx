@@ -1,51 +1,28 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import AutoGrowTextarea from './AutoGrowTextarea.jsx';
-import LockedField from './ParameterLock.jsx';
-import RunProgress from './RunProgress.jsx';
-import { CONCEPT_FIELDS, conceptIsCurrent, conceptIsReady, CONCEPT_DRAG_TYPE } from './concept.js';
+import { CONCEPT_FIELDS, conceptIsCurrent } from './concept.js';
 
-export default function ConceptPanel({ project, run, onRetry, onReconnect, extracting, disabled, onChange, onToggleLock, onConfirm, onDragState }) {
-  const dragPreview = useRef(null);
-  const clearDragPreview = () => { dragPreview.current?.remove(); dragPreview.current = null; };
-  useEffect(() => clearDragPreview, []);
+export default function ConceptPanel({ project, run, extracting, disabled, onChange, open, onOpenChange }) {
   const concept = project.scientificConcept;
   const stale = concept && !conceptIsCurrent(project);
-  if (project.conceptConfirmed || (!concept && !extracting && !run)) return null;
+  if (!concept && !extracting && !run) return null;
   const interrupted = run?.status === 'interrupted';
   const failed = run?.status === 'failed';
   const showEditor = concept && !extracting && !interrupted;
-  const canMove = showEditor && !disabled && conceptIsReady(project);
-  function startDrag(event) {
-    event.stopPropagation();
-    if (!canMove) { event.preventDefault(); return; }
-    clearDragPreview();
-    // An explicit, isolated preview prevents the browser capturing the canvas column.
-    const preview = document.createElement('div');
-    preview.className = 'concept-only-drag-preview';
-    const title = document.createElement('strong');
-    title.textContent = 'Scientific concept';
-    const text = document.createElement('p');
-    text.textContent = concept.core_concept;
-    preview.append(title, text);
-    document.body.appendChild(preview);
-    dragPreview.current = preview;
-    event.dataTransfer.setData(CONCEPT_DRAG_TYPE, 'current-concept');
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setDragImage(preview, 28, 24);
-    onDragState(true);
-  }
-  return <section className="concept-panel concept-artifact" aria-labelledby="concept-heading" aria-busy={extracting}>
-    <div className={`concept-heading ${canMove ? 'concept-drag-handle' : ''}`} draggable={canMove} onDragStart={startDrag} onDragEnd={event=>{event.stopPropagation();clearDragPreview();onDragState(false);}} title={canMove ? 'Drag this header to move only the concept card' : undefined}><span className="concept-drag-grip" aria-hidden="true">⠿</span><h3 id="concept-heading">Scientific concept</h3><span>{extracting ? 'GENERATING…' : interrupted ? 'CONNECTION INTERRUPTED' : failed && concept ? 'PREVIOUS DRAFT' : failed ? 'GENERATION FAILED' : stale ? 'SOURCE CHANGED' : 'CURRENT DRAFT'}</span></div>
-    {run && run.status !== 'complete' && <RunProgress kind="concept" run={run} busy={extracting} onRetry={onRetry} onReconnect={onReconnect}/>}
+  const status = extracting ? 'Generating…' : interrupted ? 'Connection interrupted' : failed && concept ? 'Previous draft' : failed ? 'Generation failed' : stale ? 'Source changed' : '';
+  return <details className="concept-panel concept-artifact review-disclosure" open={open} onToggle={event=>onOpenChange(event.currentTarget.open)} aria-busy={extracting}>
+    <summary><span className="review-disclosure-title">Scientific concept</span>{status && <span className="review-disclosure-status">{status}</span>}</summary>
     {failed && concept && <p role="status">Regeneration failed. Your previous draft is restored below; no new concept was created.</p>}
     {showEditor && <>
-      {stale && <p className="concept-stale" role="status">Paper changed. Generate the concept again using the button above.</p>}
-      <div className="concept-move-action"><span>Confirm the reviewed values before generating.</span><button type="button" disabled={!canMove} onClick={onConfirm}>Confirm & lock</button></div>
-      <div className="concept-editor">
-        <fieldset disabled={disabled} className="concept-fields">{CONCEPT_FIELDS.map(([key, label, limit]) => <LockedField key={key} name={`scientificConcept.${key}`} label={label} locks={project.parameterLocks} onToggle={onToggleLock} disabled={disabled}><AutoGrowTextarea rows={2} maxLength={limit} value={concept[key] || ''} onChange={e => onChange({ ...concept, [key]: e.target.value })}/></LockedField>)}
-          <p className="concept-review-note">Check claims and excerpts against the paper. Edits are saved automatically.</p>
-        </fieldset>
-      </div>
+      {stale && <p className="concept-stale" role="status">Paper changed. Generate the concept again using Generate concept in the left column.</p>}
+
+      <fieldset disabled={disabled} className="concept-fields">
+        {CONCEPT_FIELDS.map(([key, label, limit]) => <label key={key} className="brief-field">
+          {label}
+          <AutoGrowTextarea rows={2} maxLength={limit} value={concept[key] || ''} onChange={e => onChange({ ...concept, [key]: e.target.value })}/>
+        </label>)}
+        <p className="concept-review-note">Check claims and excerpts against the paper. Edits are saved automatically.</p>
+      </fieldset>
     </>}
-  </section>;
+  </details>;
 }

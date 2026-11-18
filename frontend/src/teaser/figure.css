@@ -1,0 +1,81 @@
+.workspace-dialog.figure-editor-dialog { width: min(990px,calc(100vw - 32px)); }
+.figure-editor-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(220px,.48fr); gap: 20px; align-items: start; }
+.figure-editor-toolbar,.figure-dialog-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+}
+.figure-editor-toolbar { margin-bottom: 9px; }
+.figure-snapshot-controls { container-type: inline-size; margin: 12px 0; }
+.figure-snapshot-actions { display: grid; grid-template-columns: repeat(4,auto); gap: 5px; }
+.figure-snapshot-actions > button { min-width: 0; min-height: 36px; padding: 5px 6px; font-size: 11px; white-space: nowrap; }
+.snapshot-action-short { display: none; }
+.figure-snapshot-meta { display: flex; align-items: center; gap: 7px; margin-top: 8px; color: var(--ui-muted); font-size: 11px; }
+.figure-snapshot-meta p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 312px) {
+  .figure-snapshot-actions { gap: 4px; }
+  .figure-snapshot-actions > button { padding-inline: 2px; }
+  .snapshot-action-detail,.snapshot-action-full { display: none; }
+  .snapshot-action-short { display: inline; }
+}
+.figure-dialog-actions { justify-content: flex-end; margin-top: 14px; }
+.figure-editor-dialog .figure-dialog-actions {
+  position: sticky; bottom: 0; padding: 10px 0; background: var(--ui-surface);
+}
+.figure-primary-action {
+  padding: 9px 12px; border: 1px solid var(--ui-accent); border-radius: 6px;
+  background: var(--ui-accent); color: var(--ui-on-accent); font-size: 12px; font-weight: 600;
+}
+.figure-primary-action:hover:not(:disabled) { background: var(--ui-accent-hover); }
+.figure-stage {
+  position: relative; overflow: hidden; width: 100%; border-radius: 7px;
+  background: var(--ui-canvas);
+}
+.figure-stage img { display: block; width: 100%; height: auto; }
+.figure-stage-overlay { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.figure-stage-overlay text,.figure-stage-overlay line[stroke="transparent"],.figure-drawing-stroke { cursor: move; }
+.figure-arrow-handle { fill: #fff; stroke: #316190; stroke-width: 2; cursor: grab; }
+.figure-stage-overlay[data-drawing="true"],.figure-stage-overlay[data-drawing="true"] * { cursor: crosshair; }
+.figure-drawing-stroke polyline { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.figure-layer-list:empty { display: none; }
+.figure-layer-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 135px; overflow-y: auto; padding: 3px; margin-bottom: 8px; }
+.figure-layer-list .secondary-action { max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 4px 7px; font-size: 11px; }
+.figure-editor-toolbar [aria-pressed="true"],.figure-layer-list [aria-pressed="true"] { background: var(--ui-accent-soft); border-color: var(--ui-accent); }
+.figure-brush-fields { display: flex; align-items: start; gap: 12px; margin-bottom: 10px; }
+.figure-brush-fields label:last-child { flex: 1; }
+.figure-layer-fields,.figure-metadata-fields { display: grid; gap: 10px; }
+.figure-layer-fields { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--ui-border); }
+.figure-layer-fields > button { justify-self: start; white-space: normal; }
+.figure-coordinates { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+.figure-editor-properties label,.figure-review-form label,.figure-review-comment { display: grid; gap: 4px; font-size: 12px; font-weight: 600; }
+.figure-editor-properties input,.figure-editor-properties textarea,.figure-editor-properties select,
+.figure-review-form select,.figure-review-form textarea,.figure-review-comment textarea {
+  width: 100%; min-width: 0; padding: 7px 8px; border: 1px solid var(--ui-border-strong);
+  border-radius: 6px; background: var(--ui-surface); color: var(--ui-ink); font-size: 12px; font-weight: 400;
+}
+.figure-brush-fields input[type="color"] { width: 44px; height: 29px; padding: 3px; cursor: pointer; }
+.figure-brush-fields input[type="range"] { align-self: center; height: 29px; padding: 0; accent-color: var(--ui-accent); }
+.figure-review-preview { background: var(--ui-canvas); border: 1px solid var(--ui-border); border-radius: 8px; overflow: hidden; }
+.figure-review-preview img { display: block; width: 100%; max-height: 44dvh; object-fit: contain; }
+.figure-review-queue { margin-bottom: 16px; }
+.figure-review-queue .studio-activity-list li { flex-wrap: wrap; }
+.figure-review-badge {
+  flex: none; display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 5px;
+  background: var(--ui-soft); color: var(--ui-text); font-size: 10px; font-weight: 600; white-space: nowrap;
+}
+.figure-review-badge[data-status="pending"] { background: var(--ui-accent-soft); color: var(--ui-accent); }
+.figure-review-badge[data-status="approved"] { background: var(--ui-accent); color: var(--ui-on-accent); }
+.figure-review-heading,.figure-review-invite { display:flex; flex-wrap:wrap; align-items:center; gap: 8px; margin: 12px 0; font-size: 12px; }
+.figure-review-references { margin-top: 12px; font-size: 12px; line-height: 1.5; }
+.figure-review-references summary { cursor: pointer; }
+.figure-reviewed-text { display: grid; gap: 5px; margin: 12px 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.figure-reviewed-text dt { font-weight: 600; }
+.figure-reviewed-text dd { margin: 0 0 6px; white-space: pre-wrap; }
+.figure-review-comments { list-style: none; margin: 10px 0; padding: 0; max-height: 25dvh; overflow-y: auto; }
+.figure-review-comments li { padding: 8px 0; border-top: 1px solid var(--ui-border); font-size: 12px; overflow-wrap: anywhere; }
+.figure-review-comments time { margin-left: 7px; font-size: 10px; color: var(--ui-muted); }
+.figure-review-comments p { margin-top: 5px; white-space: pre-wrap; }
+.workspace-dialog .figure-review-form { display: grid; gap: 11px; }
+.figure-review-form .figure-dialog-actions { margin-top: 1px; }
+.figure-review-message { margin-top: 8px; font-size: 12px; }
+@media(max-width:660px) {
+  .figure-editor-grid { grid-template-columns: minmax(0,1fr); gap: 13px; }
+}
