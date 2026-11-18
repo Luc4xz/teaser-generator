@@ -378,7 +378,10 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
           <Icon name={appearance.mode === 'dark' ? 'sun' : 'moon'} size={16}/>
         </button>
         <Collaboration project={project} setProject={setProject} session={session} setSession={setSession} disabled={disabled}
-          status={collaboration.status} onJoin={resetProjectView} onCreateBoard={collaboration.createSharedBoard}/>
+          status={collaboration.status} onJoin={switched=>{
+            if (switched) resetProjectView();
+            navigate('workspace');
+          }} onCreateBoard={collaboration.createSharedBoard}/>
         <button type="button" className="new-project-button" onClick={()=>setSettingsOpen(true)} disabled={disabled}
           aria-label="Settings" title="Settings" aria-haspopup="dialog" aria-controls="settings-dialog">
           <Icon name="settings" size={15}/><span className="studio-topbar-label">Settings</span>

@@ -14,13 +14,14 @@ export async function fetchArtifacts() {
   return response.json();
 }
 
-export async function loginUser(payload) {
+export async function loginUser(payload, signal) {
   const response = await fetch(apiUrl('/api/auth/login'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload || {}),
+    signal,
   });
 
   if (!response.ok) {

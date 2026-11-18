@@ -148,7 +148,7 @@ def auth_session(profile=Depends(require_session)):
 
 
 @app.post("/api/auth/login", response_model=AuthLoginResponse)
-async def auth_login(request: AuthLoginRequest) -> AuthLoginResponse:
+def auth_login(request: AuthLoginRequest) -> AuthLoginResponse:
     try:
         profile = history_store.authenticate_or_register_user(
             username=request.username,

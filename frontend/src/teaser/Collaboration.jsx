@@ -2,19 +2,30 @@ import React, { useEffect, useRef, useState } from 'react';
 import { API_BASE } from './workspace.js';
 import { createProject } from './projects.js';
 import { readSession, checkSessionResponse } from './session.js';
+import { parseBoardInvite } from './board-invite.js';
+import { withRequestTimeout } from './request-timeout.js';
 import StudioFoldMark from './StudioFoldMark.jsx';
 import Icon from './StudioIcon.jsx';
 export { readSession };
 const EMPTY_REVIEW_STATE = {members:[], reviews:[]};
-export async function boardRequest(path, session, method='GET', body) {
-  const response = await fetch(`${API_BASE}/api/boards${path}`, {method, headers: {'Content-Type':'application/json', Authorization:`Bearer ${session?.token || ''}`}, ...(body ? {body:JSON.stringify(body)} : {})});
-  checkSessionResponse(response);
-  const data = await response.json();
-  if (!response.ok) throw Object.assign(
-    new Error(typeof data.detail === 'string' ? data.detail : 'Could not sync board. Please retry.'),
-    {status:response.status},
-  );
-  return data;
+export function boardRequest(path, session, method='GET', body) {
+  return withRequestTimeout(async signal=>{
+    let response;
+    try {
+      response = await fetch(`${API_BASE}/api/boards${path}`, {method, signal, headers: {'Content-Type':'application/json', Authorization:`Bearer ${session?.token || ''}`}, ...(body ? {body:JSON.stringify(body)} : {})});
+    } catch {
+      throw new Error('Could not reach the board server. Check your connection and try again.');
+    }
+    checkSessionResponse(response);
+    const data = await response.json().catch(()=>{
+      throw new Error('The board service is unavailable at this app address. Check that you opened the correct app.');
+    });
+    if (!response.ok) throw Object.assign(
+      new Error(typeof data?.detail === 'string' ? data.detail : 'Could not sync board. Please retry.'),
+      {status:response.status},
+    );
+    return data;
+  });
 }
 export function useBoard(project, setProject, session) {
   const [status,setStatus] = useState('');
@@ -124,9 +135,10 @@ export async function copyBoardInvite(board) {
 }
 
 export default function Collaboration({project,setProject,session,setSession,disabled,status,onJoin,onCreateBoard}) {
-  const [open,setOpen]=useState(false);
-  const [message,setMessage]=useState(''), [working,setWorking]=useState(false);
   const [join,setJoin]=useState(()=>new URLSearchParams(location.search).get('board') || '');
+  const [open,setOpen]=useState(()=>Boolean(join));
+  const [message,setMessage]=useState(''), [error,setError]=useState(''), [action,setAction]=useState(null);
+  const working = action !== null;
   const container = useRef(null);
   const trigger = useRef(null);
   useEffect(() => {
@@ -148,21 +160,33 @@ export default function Collaboration({project,setProject,session,setSession,dis
     };
   }, [open]);
 
-  async function boardAction(create) {
-    setWorking(true);setMessage('');
+  async function boardAction(inviteId) {
+    setAction(inviteId ? 'join' : 'create');setMessage('');setError('');
     try {
-      if (create) await onCreateBoard();
+      if (!inviteId) await onCreateBoard();
       else {
-        const board = await boardRequest(`/${encodeURIComponent(join.trim())}`,session);
-        setProject({...createProject(board.name),sharedBoardId:board.id,canvasImages:board.snapshots});
-        onJoin?.();
+        const board = await boardRequest(`/${encodeURIComponent(inviteId)}`,session);
+        const url = new URL(location.href);
+        if (url.searchParams.has('board')) {
+          url.searchParams.delete('board');
+          history.replaceState(history.state,'',url);
+        }
+        const switched = project.sharedBoardId !== board.id;
+        if (switched) setProject({...createProject(board.name),sharedBoardId:board.id,canvasImages:board.snapshots});
+        onJoin?.(switched);
+        setJoin('');
+        setMessage(`Opened ${board.name}.`);
       }
-      setJoin('');
-    }catch(e){setMessage(e.message);}finally{setWorking(false);}
+    } catch (failure) {
+      setError(inviteId && failure.status === 404
+        ? 'Board not found on this server. Open the invite in the same app where the board was created, or ask the owner for a current invite.'
+        : failure.message);
+    } finally { setAction(null); }
   }
   async function copy() {
+    setMessage('');setError('');
     try {await copyBoardInvite(project.sharedBoardId);setMessage('Invite link copied.');}
-    catch {setMessage('Could not copy the invite link. You can copy the board ID above.');}
+    catch {setError('Could not copy the invite link. You can copy the board ID above.');}
   }
   return <div className="collaboration-menu" ref={container} onBlur={event=>{
     if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
@@ -182,17 +206,21 @@ export default function Collaboration({project,setProject,session,setSession,dis
         <label>Board ID<input readOnly value={project.sharedBoardId} onFocus={event=>event.target.select()}/></label>
         <button type="button" onClick={copy}>Copy invite link</button>
       </div> : <div className="board-share">
-        <button type="button" disabled={disabled || working} onClick={()=>boardAction(true)}>Create shared board</button>
+        <button type="button" disabled={disabled || working} onClick={()=>boardAction()}>{action === 'create' ? 'Creating board…' : 'Create shared board'}</button>
       </div>}
       <form className="board-join" onSubmit={event=>{
         event.preventDefault();
-        if (!disabled && !working && join.trim()) boardAction(false);
+        if (disabled || working || !join.trim()) return;
+        const id = parseBoardInvite(join,location.origin);
+        if (id) boardAction(id);
+        else {setMessage('');setError('Paste a board ID or an invite link that contains a board ID.');}
       }}>
-        <label>Join another board<input value={join} onChange={event=>setJoin(event.target.value)} placeholder="Paste board ID"/></label>
-        <button type="submit" disabled={disabled || working || !join.trim()}>Join</button>
+        <label>Join another board<input value={join} disabled={working} onChange={event=>{setJoin(event.target.value);setError('');}} placeholder="Paste board ID or invite link"/></label>
+        <button type="submit" aria-busy={action === 'join'} disabled={disabled || working || !join.trim()}>{action === 'join' ? 'Joining…' : 'Join'}</button>
       </form>
       <p>Anyone signed in with the invite can view snapshots, saved papers and briefs, and move cards. Drafts stay personal.</p>
       {message && <p role="status">{message}</p>}
+      {error && <p role="alert">{error}</p>}
     </div>
   </div>;
 }
