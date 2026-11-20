@@ -1,4 +1,5 @@
 """Durable, link-shared boards. Append-only snapshots; atomic position updates."""
+import asyncio
 import hashlib
 import json
 import secrets
@@ -7,15 +8,19 @@ import time
 from typing import Literal, Optional
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from fastapi import APIRouter, Header, HTTPException
+from threading import Lock
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 from .history_store import get_history_store
 
 router = APIRouter(prefix='/api/boards', tags=['boards'])
+_listeners = {}
+_listeners_lock = Lock()
 
 
 @contextmanager
-def connect():
+def connect(changed_board=None):
     db = sqlite3.connect(get_history_store().db_path, timeout=15)
     db.row_factory = sqlite3.Row
     db.executescript('''
@@ -35,12 +40,29 @@ def connect():
         name TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS figure_review_comment_lookup ON figure_review_comments(board,snapshot,id);
+    CREATE TABLE IF NOT EXISTS board_changes (
+        revision INTEGER PRIMARY KEY AUTOINCREMENT,
+        board TEXT NOT NULL, kind TEXT NOT NULL, item TEXT NOT NULL, UNIQUE(board,kind,item)
+    );
+    CREATE INDEX IF NOT EXISTS board_change_revision ON board_changes(board,revision);
     ''')
     try:
         with db:
             yield db
+        if changed_board and db.total_changes:
+            with _listeners_lock:
+                for loop, signal in _listeners.get(changed_board, ()):
+                    loop.call_soon_threadsafe(signal.set)
     finally:
         db.close()
+
+
+def record_change(db, board, kind, item=''):
+    db.execute('INSERT OR REPLACE INTO board_changes(board,kind,item) VALUES (?,?,?)', (board, kind, item))
+
+
+def board_revision(db, board):
+    return db.execute('SELECT COALESCE(MAX(revision),0) FROM board_changes WHERE board=?', (board,)).fetchone()[0]
 
 
 def issue_session(profile, seconds):
@@ -110,6 +132,18 @@ def remember_member(db, board, user):
             INSERT INTO board_members(board,user_id,name) VALUES (?,?,?)
             ON CONFLICT(board,user_id) DO UPDATE SET name=excluded.name
         ''', (board, user_id, name))
+        record_change(db, board, 'members')
+
+
+def list_members(db, board):
+    return [{'id':row['user_id'], 'name':row['name']} for row in db.execute(
+        'SELECT user_id,name FROM board_members WHERE board=? ORDER BY name COLLATE NOCASE,user_id', (board,)
+    )]
+
+
+def snapshot_data(rows):
+    return [{**json.loads(row['payload']), **({'position':json.loads(row['position'])} if row['position'] else {})}
+            for row in rows]
 
 
 def list_reviews(db, board, snapshot_id=None):
@@ -167,16 +201,75 @@ def create_board(body: BoardInput, authorization: Optional[str] = Header(default
 @router.get('/{board}')
 def read_board(board: str, authorization: Optional[str] = Header(default=None)):
     user = identity(authorization)
-    with connect() as db:
+    with connect(board) as db:
         record = require_board(db, board)
         remember_member(db, board, user)
+        db.commit()
+        db.execute('BEGIN')
+        revision = board_revision(db, board)
         rows = db.execute('SELECT payload,position FROM board_snapshots WHERE board=? ORDER BY rowid', (board,)).fetchall()
-        members = [{'id':row['user_id'], 'name':row['name']} for row in db.execute(
-            'SELECT user_id,name FROM board_members WHERE board=? ORDER BY name COLLATE NOCASE,user_id', (board,)
-        )]
-        reviews = list_reviews(db, board)
-    return {'id': board, 'name': record['name'], 'members':members, 'reviews':reviews,
-            'snapshots': [{**json.loads(r['payload']), **({'position': json.loads(r['position'])} if r['position'] else {})} for r in rows]}
+        members, reviews = list_members(db, board), list_reviews(db, board)
+    return {'id':board, 'name':record['name'], 'revision':revision, 'members':members,
+            'reviews':reviews, 'snapshots':snapshot_data(rows)}
+
+
+def read_changes(board, after):
+    with connect() as db:
+        db.execute('BEGIN')
+        require_board(db, board)
+        revision = board_revision(db, board)
+        if revision <= after:
+            return None
+        kinds = {row['kind'] for row in db.execute(
+            'SELECT DISTINCT kind FROM board_changes WHERE board=? AND revision>?', (board, after)
+        )}
+        result = {'revision':revision}
+        if 'snapshot' in kinds:
+            rows = db.execute('''
+                SELECT s.payload,s.position FROM board_snapshots s
+                JOIN board_changes c ON c.board=s.board AND c.item=s.id
+                WHERE c.board=? AND c.kind='snapshot' AND c.revision>? ORDER BY s.rowid
+            ''', (board, after)).fetchall()
+            result['snapshots'] = snapshot_data(rows)
+        if 'position' in kinds:
+            result['positions'] = [{'id':row['id'], 'position':json.loads(row['position'])} for row in db.execute('''
+                SELECT s.id,s.position FROM board_snapshots s
+                JOIN board_changes c ON c.board=s.board AND c.item=s.id
+                WHERE c.board=? AND c.kind='position' AND c.revision>?
+            ''', (board, after))]
+        if 'members' in kinds:
+            result['members'] = list_members(db, board)
+        if 'review' in kinds or 'members' in kinds:
+            result['reviews'] = list_reviews(db, board)
+        return result
+
+
+@router.get('/{board}/updates')
+async def wait_for_board_update(board: str, after: int = Query(ge=0), _user: dict = Depends(require_session)):
+    loop = asyncio.get_running_loop()
+    signal = asyncio.Event()
+    listener = (loop, signal)
+    with _listeners_lock:
+        _listeners.setdefault(board, set()).add(listener)
+    deadline = loop.time() + 20
+    try:
+        while True:
+            signal.clear()
+            update = await run_in_threadpool(read_changes, board, after)
+            if update:
+                return update
+            if loop.time() >= deadline:
+                return Response(status_code=204)
+            try:
+                await asyncio.wait_for(signal.wait(), deadline - loop.time())
+            except asyncio.TimeoutError:
+                # Recheck SQLite before renewing, including writes from another process.
+                pass
+    finally:
+        with _listeners_lock:
+            _listeners[board].remove(listener)
+            if not _listeners[board]:
+                del _listeners[board]
 
 
 @router.put('/{board}/snapshots/{snapshot_id}')
@@ -190,16 +283,18 @@ def publish_snapshot(board: str, snapshot_id: str, body: dict, authorization: Op
     encoded = json.dumps(payload)
     if len(encoded) > 25_000_000:
         raise HTTPException(413, 'Snapshot is too large.')
-    with connect() as db:
+    with connect(board) as db:
         require_board(db, board)
-        db.execute('INSERT OR IGNORE INTO board_snapshots(board,id,payload) VALUES (?,?,?)', (board, snapshot_id, encoded))
+        inserted = db.execute('INSERT OR IGNORE INTO board_snapshots(board,id,payload) VALUES (?,?,?)', (board, snapshot_id, encoded))
+        if inserted.rowcount:
+            record_change(db, board, 'snapshot', snapshot_id)
     return {'ok': True}
 
 
 @router.post('/{board}/snapshots/{snapshot_id}/review')
 def request_review(board: str, snapshot_id: str, body: ReviewRequest, authorization: Optional[str] = Header(default=None)):
     user = identity(authorization)
-    with connect() as db:
+    with connect(board) as db:
         db.execute('BEGIN IMMEDIATE')
         require_board(db, board)
         row = db.execute('SELECT payload FROM board_snapshots WHERE board=? AND id=?', (board, snapshot_id)).fetchone()
@@ -222,13 +317,14 @@ def request_review(board: str, snapshot_id: str, body: ReviewRequest, authorizat
             VALUES (?,?,?,?,?,?,?,?)
         ''', (board, snapshot_id, user['user_id'], body.reviewer_id, body.caption, body.alt_text,
               'pending', datetime.now(timezone.utc).isoformat()))
+        record_change(db, board, 'review')
         return list_reviews(db, board, snapshot_id)[0]
 
 
 @router.post('/{board}/snapshots/{snapshot_id}/review/comments')
 def comment_review(board: str, snapshot_id: str, body: ReviewComment, authorization: Optional[str] = Header(default=None)):
     user = identity(authorization)
-    with connect() as db:
+    with connect(board) as db:
         db.execute('BEGIN IMMEDIATE')
         review = require_review(db, board, snapshot_id)
         if user['user_id'] not in (review['author'], review['reviewer']):
@@ -236,13 +332,14 @@ def comment_review(board: str, snapshot_id: str, body: ReviewComment, authorizat
         if review['status'] != 'pending':
             raise HTTPException(409, 'This review is closed.')
         add_review_comment(db, board, snapshot_id, user, body.message)
+        record_change(db, board, 'review')
         return list_reviews(db, board, snapshot_id)[0]
 
 
 @router.post('/{board}/snapshots/{snapshot_id}/review/decision')
 def decide_review(board: str, snapshot_id: str, body: ReviewDecision, authorization: Optional[str] = Header(default=None)):
     user = identity(authorization)
-    with connect() as db:
+    with connect(board) as db:
         db.execute('BEGIN IMMEDIATE')
         review = require_review(db, board, snapshot_id)
         if user['user_id'] != review['reviewer']:
@@ -255,15 +352,17 @@ def decide_review(board: str, snapshot_id: str, body: ReviewDecision, authorizat
             add_review_comment(db, board, snapshot_id, user, body.message)
         db.execute('UPDATE figure_reviews SET status=?, decided_at=? WHERE board=? AND snapshot=?',
                    (body.decision, datetime.now(timezone.utc).isoformat(), board, snapshot_id))
+        record_change(db, board, 'review')
         return list_reviews(db, board, snapshot_id)[0]
 
 
 @router.patch('/{board}/snapshots/{snapshot_id}/position')
 def move_snapshot(board: str, snapshot_id: str, body: Position, authorization: Optional[str] = Header(default=None)):
     identity(authorization)
-    with connect() as db:
+    with connect(board) as db:
         require_board(db, board)
         result = db.execute('UPDATE board_snapshots SET position=? WHERE board=? AND id=?', (body.model_dump_json(), board, snapshot_id))
         if not result.rowcount:
             raise HTTPException(404, 'Snapshot has not synced yet. Try moving it again.')
+        record_change(db, board, 'position', snapshot_id)
     return {'ok': True}

@@ -1,14 +1,15 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import StudioPanel from './StudioPanel.jsx';
-import StudioRail from './StudioRail.jsx';
+import StudioNavigation from './StudioNavigation.jsx';
 
 const STORAGE_KEY = 'teaser-studio-column-widths';
-const PANEL_NAMES = ['paper', 'concept'];
-const COLUMN_NAMES = [...PANEL_NAMES, 'canvas'];
-const TITLES = {paper:'Illustrate your paper', concept:'Review your concept', canvas:'canvas'};
+const COLUMN_NAMES = ['left', 'right', 'canvas'];
+const TITLES = {paper:'Illustrate your paper', concept:'Scientific concept', snapshot:'Selected snapshot'};
 const DEFAULT_SHARES = [0.24, 0.28, 0.48];
-const MIN_WIDTHS = {paper:210, concept:220, canvas:280};
+const MIN_WIDTHS = {left:210, right:220, canvas:280};
 const DIVIDER_WIDTH = 10;
+const CARD_MARGIN = 12;
+const CARD_FRAME = CARD_MARGIN * 2 + 2;
 
 function readShares() {
   try {
@@ -26,41 +27,59 @@ function saveShares(shares) {
   catch { /* Resizing still works without storage. */ }
 }
 
-const otherPanel = name => name === 'paper' ? 'concept' : 'paper';
+const defaultPanels = source => ({slots:[source,'snapshot'],recent:source});
 
 const WorkspaceColumns = forwardRef(function WorkspaceColumns({
-  header, paper, concept, canvas, canvasRef, canvasBusy, view, page, onWorkspace, children,
+  header, paper, concept, snapshot, snapshotStatus, defaultSource, canvas, canvasRef, canvasBusy, view, page, onWorkspace, children,
 }, controller) {
   const [shares, setShares] = useState(readShares);
   const [workspaceWidth,setWorkspaceWidth] = useState(0);
-  const [visible, setVisible] = useState({paper:true, concept:true});
+  const [panelLayout, setPanelLayout] = useState(null);
+  const {slots} = panelLayout || defaultPanels(defaultSource);
+  const visible = Object.fromEntries(Object.keys(TITLES).map(name=>[name,slots.includes(name)]));
   const [dock, setDock] = useState(null);
   const [spotlight, setSpotlight] = useState(null);
-  const [activeDivider, setActiveDivider] = useState(null);
+  const [resizing, setResizing] = useState(false);
   const [draggedPanel, setDraggedPanel] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
   const workspace = useRef(null);
-  const railButtons = useRef({});
+  const navigationButtons = useRef({});
   const drag = useRef(null);
 
   useLayoutEffect(() => {
     const body = workspace.current.parentElement;
-    const rail = body.firstElementChild;
     function measure() {
-      setWorkspaceWidth(body.clientWidth - rail.offsetWidth);
+      setWorkspaceWidth(body.clientWidth);
     }
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(body);
-    observer.observe(rail);
     return () => observer.disconnect();
   }, []);
 
-  const revealPanel = useCallback((name, {scroll=true,focus=false,smooth=false,reveal=false}={}) => {
-    if (name !== 'canvas') setVisible(previous=>previous[name] ? previous : {...previous,[name]:true});
+  const revealPanel = useCallback((name, {scroll=true,focus=false,smooth=false,reveal=false,replace}={}) => {
+    if (name !== 'canvas') setPanelLayout(previous=>{
+      const current = previous || defaultPanels(defaultSource);
+      const next = [...current.slots];
+      const replacement = next.indexOf(replace);
+      const empty = next.indexOf(null);
+      if (next.includes(name)) {
+        if (replacement !== -1 && replace !== name) next[replacement] = null;
+      } else {
+        const slot = replacement !== -1 ? replacement : empty !== -1 ? empty : next.findIndex(panel=>panel !== current.recent);
+        next[slot] = name;
+      }
+      return {slots:next,recent:name};
+    });
     setSpotlight({name,scroll,focus,smooth,reveal});
-  }, []);
-  useImperativeHandle(controller, ()=>({revealPanel}), [revealPanel]);
+  }, [defaultSource]);
+  useImperativeHandle(controller, ()=>({
+    revealPanel,
+    resetPanels() {
+      setPanelLayout(null);
+      setSpotlight(null);
+    },
+  }), [revealPanel]);
 
   useLayoutEffect(() => {
     if (spotlight && view === 'workspace') {
@@ -82,15 +101,27 @@ const WorkspaceColumns = forwardRef(function WorkspaceColumns({
   }, [spotlight]);
 
   function foldPanel(name) {
-    setVisible(previous=>({...previous,[name]:false}));
-    railButtons.current[name]?.focus({preventScroll:true});
+    setPanelLayout(previous=>{
+      const current = previous || defaultPanels(defaultSource);
+      const remaining = current.slots.map(panel=>panel === name ? null : panel);
+      return {slots:remaining,recent:current.recent === name ? remaining.find(Boolean) : current.recent};
+    });
+    navigationButtons.current[name]?.focus({preventScroll:true});
   }
 
-  const activePanels = PANEL_NAMES.filter(name=>visible[name]);
+  function markActive(name) {
+    setPanelLayout(previous=>{
+      const current = previous || defaultPanels(defaultSource);
+      return current.recent === name ? previous : {...current,recent:name};
+    });
+  }
+
+  const activePanels = COLUMN_NAMES.slice(0,2).filter((_,index)=>slots[index]);
   const split = activePanels.length === 2 ? dock : null;
+  const hasCard = activePanels.length > 0;
+  const hasDivider = activePanels.length === 2 && !split;
   const columns = [...(split ? [split.anchor] : activePanels), 'canvas'];
-  const dividerCount = columns.length - 1;
-  const available = Math.max(1, workspaceWidth - DIVIDER_WIDTH * dividerCount);
+  const available = Math.max(1, workspaceWidth - (hasCard ? CARD_FRAME : 0) - (hasDivider ? DIVIDER_WIDTH : 0));
   const desiredMinimums = columns.map(name=>MIN_WIDTHS[name]);
   const minimumTotal = desiredMinimums.reduce((sum,width)=>sum+width,0);
   const minimums = desiredMinimums.map(width=>width*Math.min(1,available/minimumTotal));
@@ -101,35 +132,29 @@ const WorkspaceColumns = forwardRef(function WorkspaceColumns({
   const widths = minimums.map((minimum,index)=>
     minimum+(extraTotal ? extra[index]/extraTotal*Math.max(0,available-minimumTotal) : 0));
 
-  function resize(index, startWidths, delta) {
-    const pairWidth = startWidths[index]+startWidths[index+1];
-    const left = Math.max(minimums[index],Math.min(pairWidth-minimums[index+1],startWidths[index]+delta));
-    const next = [...startWidths];
-    next[index] = left;
-    next[index+1] = pairWidth-left;
-    const total = next.reduce((sum,width)=>sum+width,0);
-    const nextShares = next.map(width=>width/total);
-    let saved = nextShares;
-    if (columns.length === 2) {
-      const kept = COLUMN_NAMES.indexOf(columns[0]);
-      saved = shares.map((share,i)=>i === kept ? nextShares[0] : share/(1-shares[kept])*nextShares[1]);
-    }
-    setShares(saved);
-    return saved;
+  const panelWidth = hasCard ? available - widths.at(-1) : 0;
+
+  function resize(startWidths, delta) {
+    const [leftWidth, rightWidth, canvasWidth] = startWidths;
+    const pairWidth = leftWidth+rightWidth;
+    const left = Math.max(minimums[0],Math.min(pairWidth-minimums[1],leftWidth+delta));
+    const nextShares = [left,pairWidth-left,canvasWidth].map(width=>width/(pairWidth+canvasWidth));
+    setShares(nextShares);
+    return nextShares;
   }
 
-  function startResize(event, index) {
+  function startResize(event) {
     if (event.button !== 0 || drag.current) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     event.currentTarget.focus();
-    drag.current = {pointerId:event.pointerId,index,startX:event.clientX,widths,shares:null};
-    setActiveDivider(index);
+    drag.current = {pointerId:event.pointerId,startX:event.clientX,widths,shares:null};
+    setResizing(true);
   }
 
   function moveResize(event) {
     const active = drag.current;
     if (active?.pointerId !== event.pointerId) return;
-    active.shares = resize(active.index,active.widths,event.clientX-active.startX);
+    active.shares = resize(active.widths,event.clientX-active.startX);
   }
 
   function finishResize(event) {
@@ -137,15 +162,15 @@ const WorkspaceColumns = forwardRef(function WorkspaceColumns({
     if (active?.pointerId !== event.pointerId) return;
     if (active.shares) saveShares(active.shares);
     drag.current = null;
-    setActiveDivider(null);
+    setResizing(false);
   }
 
-  function resizeWithKeyboard(event,index) {
+  function resizeWithKeyboard(event) {
     const step = event.shiftKey ? 48 : 16;
     const deltas = {ArrowLeft:-step,ArrowRight:step,Home:-available,End:available};
     if (!Object.hasOwn(deltas,event.key)) return;
     event.preventDefault();
-    saveShares(resize(index,widths,deltas[event.key]));
+    saveShares(resize(widths,deltas[event.key]));
   }
 
   function resetColumnWidths() {
@@ -153,20 +178,15 @@ const WorkspaceColumns = forwardRef(function WorkspaceColumns({
     saveShares(DEFAULT_SHARES);
   }
 
-  function divider(index) {
-    if (index >= dividerCount) return null;
-    const percent = width=>Math.round(width/available*100);
-    const left = columns[index];
-    const right = columns[index+1];
-    const labels = {paper:'paper',concept:'concept',canvas:'canvas'};
-    return <div className={`column-divider${activeDivider === index ? ' is-dragging' : ''}`}
-      style={{gridArea:index ? 'divider-b' : 'divider-a'}} role="separator" tabIndex={0}
-      aria-orientation="vertical" aria-label={`Resize ${labels[left]} and ${labels[right]} columns`}
-      aria-controls={`${left}-column`} aria-valuemin={percent(minimums[index])}
-      aria-valuemax={percent(widths[index]+widths[index+1]-minimums[index+1])} aria-valuenow={percent(widths[index])}
-      aria-valuetext={`${percent(widths[index])}% of workspace width`}
-      onPointerDown={event=>startResize(event,index)} onPointerMove={moveResize}
-      onLostPointerCapture={finishResize} onKeyDown={event=>resizeWithKeyboard(event,index)}/>;
+  function divider() {
+    const percent = width=>Math.round(width/panelWidth*100);
+    return <div key="divider" className={`column-divider${resizing ? ' is-dragging' : ''}`} role="separator" tabIndex={0}
+      aria-orientation="vertical" aria-label={`Resize ${TITLES[slots[0]]} and ${TITLES[slots[1]]}`}
+      aria-controls={slots.map(name=>`${name}-column`).join(' ')} aria-valuemin={percent(minimums[0])}
+      aria-valuemax={percent(panelWidth-minimums[1])} aria-valuenow={percent(widths[0])}
+      aria-valuetext={`${percent(widths[0])}% of card width`}
+      onPointerDown={startResize} onPointerMove={moveResize}
+      onLostPointerCapture={finishResize} onKeyDown={resizeWithKeyboard}/>;
   }
 
   function beginPanelDrag(event,name) {
@@ -181,7 +201,9 @@ const WorkspaceColumns = forwardRef(function WorkspaceColumns({
   }
 
   function dockPanel(source,target,edge) {
-    setDock(previous=>({anchor:previous?.anchor || target, first:edge === 'top' ? source : target}));
+    const sourceSlot = COLUMN_NAMES[slots.indexOf(source)];
+    const targetSlot = COLUMN_NAMES[slots.indexOf(target)];
+    setDock(previous=>({anchor:previous?.anchor || targetSlot, first:edge === 'top' ? sourceSlot : targetSlot}));
     finishPanelDrag();
   }
 
@@ -210,12 +232,13 @@ const WorkspaceColumns = forwardRef(function WorkspaceColumns({
   }
 
   function panel(name,content) {
-    const other = otherPanel(name);
-    return <StudioPanel name={name} title={TITLES[name]} otherTitle={TITLES[other]}
-      className={name === 'paper' ? 'input-panel' : 'concept-column'} visible={visible[name]}
+    const other = slots.find(panel=>panel && panel !== name);
+    const className = {paper:'input-panel', concept:'concept-column', snapshot:'snapshot-column'}[name];
+    return <StudioPanel key={name} name={name} title={TITLES[name]} status={name === 'snapshot' ? snapshotStatus : undefined} otherTitle={TITLES[other]}
+      className={className} visible={visible[name]} onActivate={()=>markActive(name)}
       highlighted={spotlight?.name === name} revealing={spotlight?.name === name && spotlight.reveal}
       dropEdge={dropTarget?.name === name ? dropTarget.edge : undefined}
-      docked={Boolean(split)} canDock={visible[other]} onFold={()=>foldPanel(name)}
+      docked={Boolean(split)} canDock={Boolean(other)} onFold={()=>foldPanel(name)}
       onDragStart={event=>beginPanelDrag(event,name)} onDragEnd={finishPanelDrag}
       onDragOver={event=>updateDropTarget(event,name)} onDragLeave={event=>clearDropTarget(event,name)}
       onDrop={event=>dropPanel(event,name)} onDock={edge=>dockPanel(name,other,edge)} onSeparate={()=>setDock(null)}>
@@ -223,36 +246,43 @@ const WorkspaceColumns = forwardRef(function WorkspaceColumns({
     </StudioPanel>;
   }
 
-  const tracks = columns.flatMap((name,index)=>index ? [index === 1 ? 'divider-a' : 'divider-b',name] : [name]);
-  const gridAreas = split ? `"${split.first} divider-a canvas" "${otherPanel(split.first)} divider-a canvas"` : `"${tracks.join(' ')}"`;
-  const style = {
-    '--divider-width':`${DIVIDER_WIDTH}px`,
-    '--workspace-areas':gridAreas,
-    '--workspace-columns':widths.flatMap((width,index)=>index ? [`${DIVIDER_WIDTH}px`,`${width}px`] : [`${width}px`]).join(' '),
-  };
+  const content = {paper, concept, snapshot};
+  const panelOrder = (split?.first === 'right' ? [...slots].reverse() : slots).filter(Boolean);
+  const panelItems = panelOrder.map(name=>panel(name,content[name]));
+  if (hasDivider) panelItems.splice(1,0,divider());
+  for (const name of Object.keys(content)) {
+    if (!visible[name]) panelItems.push(panel(name,content[name]));
+  }
 
-  return <div className="core-studio" style={workspaceWidth ? style : undefined} data-canvas-only={!dividerCount || undefined}>
+  const cardStyle = {
+    '--panel-card-margin':`${CARD_MARGIN}px`,
+    '--panel-card-width':`${panelWidth+CARD_FRAME+(hasDivider ? DIVIDER_WIDTH : 0)}px`,
+    '--panel-card-columns':hasDivider ? `${widths[0]}px ${DIVIDER_WIDTH}px minmax(0,1fr)` : undefined,
+  };
+  const navigation = <StudioNavigation visible={visible} view={view} buttonRefs={navigationButtons} onSection={name=>{
+    if (view !== 'workspace') onWorkspace();
+    revealPanel(name,{smooth:true,focus:view !== 'workspace',reveal:view === 'workspace' && name !== 'canvas' && !visible[name]});
+  }}/>;
+
+  return <div className="core-studio" data-workspace={view === 'workspace' || undefined}
+    data-canvas-only={!hasCard || undefined} style={workspaceWidth && hasCard ? cardStyle : undefined}>
     {header}
     <div className="studio-body">
-      <StudioRail visible={visible} view={view} buttonRefs={railButtons} onSection={name=>{
-        if (view !== 'workspace') onWorkspace();
-        revealPanel(name,{smooth:true,reveal:view === 'workspace' && name !== 'canvas' && !visible[name]});
-      }}/>
-      <main className={`core-workspace${activeDivider !== null ? ' is-resizing' : ''}`} ref={workspace} hidden={view !== 'workspace'}
-        data-split={split?.first}>
-        {panel('paper',paper)}
-        {divider(0)}
-        {panel('concept',concept)}
-        {divider(1)}
+      <main className={`core-workspace${resizing ? ' is-resizing' : ''}`} ref={workspace} hidden={view !== 'workspace'}
+        aria-label="Research illustration workspace" data-split={split?.first}>
+        <div className="studio-panel-card" hidden={!hasCard} data-both-panels={activePanels.length === 2 || undefined}>
+          {panelItems}
+        </div>
         <section id="studio-canvas" className="canvas-panel" ref={canvasRef} aria-label="Shared idea canvas" aria-busy={canvasBusy} tabIndex={-1}
           data-highlighted={spotlight?.name === 'canvas' || undefined}
           data-drop-edge={dropTarget?.name === 'canvas' ? 'canvas' : undefined}
           onDragOver={event=>updateDropTarget(event,'canvas')} onDragLeave={event=>clearDropTarget(event,'canvas')}
           onDrop={event=>dropPanel(event,'canvas')}>
-          {canvas}
+          {canvas(view === 'workspace' ? navigation : null)}
         </section>
       </main>
       {page}
+      {view !== 'workspace' && <div key={view} className="canvas-tools studio-page-tools">{navigation}</div>}
     </div>
     {children(resetColumnWidths)}
   </div>;

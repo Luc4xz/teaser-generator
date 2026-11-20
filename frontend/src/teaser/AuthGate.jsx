@@ -3,6 +3,7 @@ import { loginUser } from '../api.js';
 import { API_BASE } from './workspace.js';
 import { readSession, saveSession, SESSION_EXPIRED } from './session.js';
 import { withRequestTimeout } from './request-timeout.js';
+import AuthParticles from './AuthParticles.jsx';
 
 export default function AuthGate({children}) {
   const [session, setSession] = useState(readSession);
@@ -47,7 +48,8 @@ export default function AuthGate({children}) {
   }
   if (session && verified) return children(session, updateSession);
   return <main className="auth-screen"><section className="auth-card" aria-labelledby="auth-heading">
-    <span className="auth-step">01 / SIGN IN</span><h1 id="auth-heading">Illustrate your paper</h1>
+    <AuthParticles />
+    <h1 id="auth-heading">Illustrate your paper</h1>
     <p>{new URLSearchParams(location.search).has('board')
       ? 'Sign in to join the shared board.' : 'Sign in to upload your paper, shape its concept, and create illustrations.'}</p>
     {session ? <div><p role="status">{working ? 'Checking your session…' : 'Session verification required.'}</p><button className="generate-button" disabled={working} onClick={()=>setAttempt(value=>value+1)}>Retry connection</button><button className="secondary-action" onClick={()=>updateSession(null)}>Use another account</button></div> :

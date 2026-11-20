@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "stellar-birth",
+  "image": "image.png",
+  "artwork_title": "Growth factor",
+  "title_origin": "publisher_cover_heading",
+  "author": "ESO/M. Kornmesser",
+  "cover_designer": null,
+  "journal": "Nature",
+  "issue_date": "2024-01-04",
+  "description": "A luminous stellar disk and opposing jets form a dramatic diagonal subject against deep space.",
+  "paper_title": "A probable Keplerian disk feeding an optically revealed massive young star",
+  "style_family": "cinematic-realism",
+  "tags": [
+    "astronomy",
+    "star",
+    "disk",
+    "space",
+    "energy",
+    "realistic"
+  ],
+  "design_principles": [
+    "One dominant luminous subject",
+    "Deep atmospheric contrast",
+    "Diagonal movement and generous dark space"
+  ],
+  "contains_publisher_typography": true,
+  "reference_instructions": "Use only broad composition, lighting, material and visual hierarchy. Do not copy subject matter, lettering, logos, layout details or artwork.",
+  "rights": "Copyright remains with the credited creators/publisher. Public cover preview stored as a reference; no redistribution license is asserted.",
+  "retrieved_on": "2026-11-19",
+  "source_url": "https://www.nature.com/nature/volumes/625/issues/7993",
+  "image_url": "https://media.springernature.com/w440/springer-static/cover-hires/journal/41586/625/7993",
+  "paper_url": "https://doi.org/10.1038/s41586-023-06790-2",
+  "image_sha256": "edbf403bd423213437cea5b8d976d972c8ddfebf0dc778b79d65b89e3a901c68",
+  "mime_type": "image/png"
+}

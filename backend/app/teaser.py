@@ -18,6 +18,14 @@ router = APIRouter(dependencies=[Depends(require_session)])
 @router.get('/api/teaser/models')
 def list_models():
     return model_catalog()
+
+
+@router.get('/api/teaser/cover-library')
+def list_cover_library():
+    from .cover_library import load_library
+    return {'references': load_library()}
+
+
 ShortText = constr(strip_whitespace=True, min_length=0, max_length=6000)
 
 
@@ -45,6 +53,8 @@ ParameterName = Literal['paper', 'userPrompt', 'audience', 'preserve', 'preferen
     'scientificConcept.finding', 'scientificConcept.evidence', 'scientificConcept.limitations']
 
 class TeaserRequest(BaseModel):
+    output_kind: Literal['illustration', 'cover'] = 'illustration'
+    cover_style: str = Field(default='', max_length=100)
     text_model: str = Field(default='', max_length=160)
     image_model: str = Field(default='', max_length=160)
     parameter_locks: List[ParameterName] = Field(default_factory=list, max_length=15)
@@ -168,6 +178,13 @@ def plan_teaser(request: TeaserRequest):
 
 @router.post('/api/teaser/generate')
 def generate_teaser(request: TeaserRequest):
+    if request.output_kind == 'cover':
+        from .cover_quality import render_reviewed_cover, evaluator_model
+        resolve_model(request.image_model, 'image')
+        evaluator_model(request)
+        plan = plan_openai(request)
+        return render_reviewed_cover(request, plan['drawingBrief'], plan,
+            lambda prompt, plan, progress: render_image(prompt, plan, request.image_model, progress))
     if request.image_model:
         resolve_model(request.image_model, 'image')
         plan = plan_openai(request)
@@ -276,31 +293,37 @@ def lock_instructions(request):
 
 
 def plan_openai(request):
+    from .cover_library import COVER_DIRECTION, select_references, reference_context
+    cover = request.output_kind == 'cover'
+    cover_instructions = ('\n' + COVER_DIRECTION + '\nReference craft principles:\n' +
+                          reference_context(select_references(request))) if cover else ''
+    layout_instructions = cover_instructions if cover else (
+        'Use one coherent scene or sequence, with minimal text. Provide composition, style, allowed labels, '
+        'and explicit exclusions. When density is none, labels must be empty; when minimal or editable, '
+        'suggest at most three short labels. Otherwise use at most one short headline and three short labels.')
     concept = request.scientific_concept or ScientificConcept.model_validate(extract_concept(request))
     plan = structured_analysis(VisualPlan,
         'Translate the supplied scientific concept into a visual plan. Do not rewrite the concept. '
         'Each mapping must name the concept field it depicts and explain the connection. '
         'Respect its evidence and limitations; do not depict unsupported causal claims or invented values. '
-        'Use one coherent scene or sequence, with minimal text. Provide composition, style, allowed labels, '
-        'and explicit exclusions. Follow the visual settings, audience, constraints, and revision feedback. '
+        'Provide composition, style, and explicit exclusions. Follow the audience, constraints, and revision feedback. '
         'Locked parameters take precedence over conflicting feedback; unlocked parameters may vary when requested. '
-        'When density is none, labels must be empty; when minimal or editable, suggest at most three short labels. '
-        'Otherwise use at most one short headline and three short labels.',
+        + layout_instructions,
         {'concept': concept.model_dump(), 'user_request': request.user_prompt,
          'visual': request.visual.model_dump(), 'audience': request.factors.audience,
          'constraints': request.factors.keepFixed, 'preferences': request.preferences,
          'feedback': request.feedback, 'locked_parameters': locked_parameter_values(request)}, request.text_model)
-    if request.visual.density == 'none':
+    if cover or request.visual.density == 'none':
         plan = plan.model_copy(update={'labels': []})
     drawing_plan = plan.model_copy(update={'labels': []}) if request.visual.density == 'editable' else plan
     sections = prompt_sections(concept, drawing_plan)
-    if request.visual.density == 'editable':
+    if request.visual.density == 'editable' and not cover:
         sections[3]['content'] += '\nKeep the bottom fifth of the image clear for editable labels added later.'
         sections[4]['content'] += '\nDraw the illustration only. Do not render text, numbers, labels, or annotation arrows.'
     lock_note = lock_instructions(request)
     if lock_note:
         sections[-1]['content'] += '\n' + lock_note
-    prompt = ART_DIRECTION + '\n\n' + '\n\n'.join(s['title'] + '\n' + s['content'] for s in sections)
+    prompt = (COVER_DIRECTION if cover else ART_DIRECTION) + '\n\n' + '\n\n'.join(s['title'] + '\n' + s['content'] for s in sections)
     return {'drawingBrief': prompt, 'promptSections': sections,
             'scientificConcept': concept.model_dump(), 'visualMapping': plan.model_dump(),
             'groundingPlan': None, 'generationMode': 'structured-concept', 'textModel':request.text_model,
@@ -311,14 +334,20 @@ def render_openai_prompt(prompt, plan, progress=lambda stage, message: None, con
     key = os.environ[config.key_env] if config else openai_key()
     model = config.model if config else os.getenv('OPENAI_IMAGE_MODEL', 'gpt-image-1-mini')
     try:
+        from .cover_library import reference_images, image_mime
+        references = reference_images(plan)
+        cover = plan.get('outputKind') == 'cover'
+        payload = {'model': model, 'prompt': prompt, 'n': 1,
+                   'size': os.getenv('TEASER_COVER_IMAGE_SIZE', '1024x1536') if cover else os.getenv('OPENAI_IMAGE_SIZE', '1024x1024'),
+                   'quality': os.getenv('TEASER_COVER_IMAGE_QUALITY', 'medium') if cover else os.getenv('OPENAI_IMAGE_QUALITY', 'low'),
+                   'output_format': 'jpeg', 'output_compression': 85}
+        body = {'data': {key: str(value) for key, value in payload.items()},
+                'files': [('image[]', (f'reference-{i}.{"png" if image_mime(data) == "image/png" else "jpg"}', data, image_mime(data))) for i, data in enumerate(references)]} if references else {'json': payload}
         # HTTP keeps image parameters compatible with the project's older OpenAI SDK.
         response = httpx.post(
-            'https://api.openai.com/v1/images/generations',
+            'https://api.openai.com/v1/images/edits' if references else 'https://api.openai.com/v1/images/generations',
             headers={'Authorization': f'Bearer {key}'},
-            json={'model': model, 'prompt': prompt,
-                  'n': 1, 'size': os.getenv('OPENAI_IMAGE_SIZE', '1024x1024'),
-                  'quality': os.getenv('OPENAI_IMAGE_QUALITY', 'low'),
-                  'output_format': 'jpeg', 'output_compression': 85},
+            **body,
             timeout=240,
         )
         response.raise_for_status()

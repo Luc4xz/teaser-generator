@@ -18,6 +18,7 @@
   --ui-accent-soft: color-mix(in srgb, var(--ui-surface) 89%, var(--ui-accent));
   --ui-accent-hover: color-mix(in srgb, var(--ui-accent) 84%, var(--ui-surface));
   --ui-accent-overlay: color-mix(in srgb, var(--ui-accent) 16%, transparent);
+  --ui-minimap-node: color-mix(in srgb, var(--ui-surface) 65%, var(--ui-accent));
   --ui-minimap-mask: color-mix(in srgb, var(--ui-canvas) 75%, transparent);
 }
 
@@ -91,8 +92,7 @@
   .workspace-header { gap: 8px; padding-inline: 10px; }
   .studio-topbar-actions { gap: 4px; }
   .studio-topbar-actions .new-project-button { width: 30px; gap: 3px; }
-  .studio-brand { gap: 6px; font-size: 12.5px; }
-  .studio-brand-icon { width: 24px; height: 24px; }
+  .studio-brand { font-size: 12.5px; }
 }
 
 @media (prefers-reduced-motion: no-preference) {

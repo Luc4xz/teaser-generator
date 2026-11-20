@@ -111,7 +111,7 @@ export function figureGeometry(layer, width, height) {
 
 export function newFigureVersion(parent, draft, image, session, variant) {
   // Image lineage is separate from provider-run identity and board placement.
-  const {id,position,runId,publishedAt,revisionFeedback,caption,altText,...content} = parent;
+  const {id,position,runId,publishedAt,revisionFeedback,caption,altText,coverReview,coverReviews,...content} = parent;
   return {
     ...content, id:crypto.randomUUID(), image, variant, versionKind:'figure_edit',
     createdAt:new Date().toISOString(), parentVersionId:id,

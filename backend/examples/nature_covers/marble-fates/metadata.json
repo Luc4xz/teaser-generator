@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "marble-fates",
+  "image": "image.png",
+  "artwork_title": "X chromosome reactivation",
+  "title_origin": "publisher_cover_heading",
+  "author": "Amy Cao",
+  "cover_designer": "Lauren Heslop",
+  "journal": "Nature Aging",
+  "issue_date": "2025-06",
+  "description": "Three sculptural figures manipulate glowing chromosome threads, turning a biological process into a unified mythological scene.",
+  "paper_title": "Aging promotes reactivation of the Barr body at distal chromosome regions",
+  "style_family": "sculptural-metaphor",
+  "tags": [
+    "biology",
+    "aging",
+    "chromosome",
+    "genetics",
+    "threads",
+    "sculpture"
+  ],
+  "design_principles": [
+    "A single narrative scene",
+    "Tactile sculptural material",
+    "A restrained palette with one luminous accent"
+  ],
+  "contains_publisher_typography": true,
+  "reference_instructions": "Use only broad composition, lighting, material and visual hierarchy. Do not copy subject matter, lettering, logos, layout details or artwork.",
+  "rights": "Copyright remains with the credited creators/publisher. Public cover preview stored as a reference; no redistribution license is asserted.",
+  "retrieved_on": "2026-11-19",
+  "source_url": "https://www.nature.com/nataging/volumes/5/issues/6",
+  "image_url": "https://media.springernature.com/w440/springer-static/cover-hires/journal/43587/5/6",
+  "paper_url": "https://doi.org/10.1038/s43587-025-00856-8",
+  "image_sha256": "0534b32ec7b77286c3da98fa253b335d30c8dfc8da1d432c7d4cdba0d3f4cd88",
+  "mime_type": "image/png"
+}

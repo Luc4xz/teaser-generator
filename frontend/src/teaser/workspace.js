@@ -4,6 +4,7 @@ import { conceptIsReady } from './concept.js';
 export const API_BASE = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 export function generationPayload(project) {
   return {
+    output_kind: 'cover',
     text_model: project.textModel || '', image_model: project.imageModel || '',
     paper: project.paper || '', title: '',
     scientific_concept: conceptIsReady(project) ? project.scientificConcept : null,

@@ -6,6 +6,7 @@ const ok = () => ({ ok: true, json: async () => ({ image: 'data:image/png;base64
 test('foldable options reach generation without removed legacy fields', () => {
   const payload = generationPayload({ userPrompt: 'Show leaves', insight: 'Gas exchange', title: 'Leaf study', preserve: 'No invented values', preferences: 'Line art', audience: 'Students', reaction: 'Understand tradeoffs', factors: { mechanism: 'Pores open' }, visual: { analogy: 'Doors', rationale: 'Controlled openings', headline: 'Gas exchange', layout: 'split', density: 'none', tone: 'sage', representation: 'abstract', purpose: 'evoke' } });
   assert.equal(payload.user_prompt, 'Show leaves');
+  assert.equal(payload.output_kind, 'cover');
   assert.deepEqual(payload.factors, { insight:'', mechanism:'', audience:'Students', keepFixed:'No invented values' });
   assert.equal(payload.title, '');
   assert.equal(payload.preferences, 'Line art');

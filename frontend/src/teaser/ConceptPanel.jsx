@@ -11,10 +11,10 @@ export default function ConceptPanel({ project, run, extracting, disabled, onCha
   const showEditor = concept && !extracting && !interrupted;
   const status = extracting ? 'Generating…' : interrupted ? 'Connection interrupted' : failed && concept ? 'Previous draft' : failed ? 'Generation failed' : stale ? 'Source changed' : '';
   return <details className="concept-panel concept-artifact review-disclosure" open={open} onToggle={event=>onOpenChange(event.currentTarget.open)} aria-busy={extracting}>
-    <summary><span className="review-disclosure-title">Scientific concept</span>{status && <span className="review-disclosure-status">{status}</span>}</summary>
+    <summary><span className="review-disclosure-title">Concept fields</span>{status && <span className="review-disclosure-status">{status}</span>}</summary>
     {failed && concept && <p role="status">Regeneration failed. Your previous draft is restored below; no new concept was created.</p>}
     {showEditor && <>
-      {stale && <p className="concept-stale" role="status">Paper changed. Generate the concept again using Generate concept in the left column.</p>}
+      {stale && <p className="concept-stale" role="status">The paper changed. Open Paper settings to regenerate the concept.</p>}
 
       <fieldset disabled={disabled} className="concept-fields">
         {CONCEPT_FIELDS.map(([key, label, limit]) => <label key={key} className="brief-field">

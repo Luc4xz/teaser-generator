@@ -4,18 +4,11 @@
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
 }
 .figure-editor-toolbar { margin-bottom: 9px; }
-.figure-snapshot-controls { container-type: inline-size; margin: 12px 0; }
-.figure-snapshot-actions { display: grid; grid-template-columns: repeat(4,auto); gap: 5px; }
-.figure-snapshot-actions > button { min-width: 0; min-height: 36px; padding: 5px 6px; font-size: 11px; white-space: nowrap; }
-.snapshot-action-short { display: none; }
+.figure-snapshot-controls { margin: 12px 0; }
+.figure-snapshot-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.figure-snapshot-actions > button { min-width: 0; min-height: 36px; padding: 5px 6px; font-size: 12px; }
 .figure-snapshot-meta { display: flex; align-items: center; gap: 7px; margin-top: 8px; color: var(--ui-muted); font-size: 11px; }
 .figure-snapshot-meta p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@container (max-width: 312px) {
-  .figure-snapshot-actions { gap: 4px; }
-  .figure-snapshot-actions > button { padding-inline: 2px; }
-  .snapshot-action-detail,.snapshot-action-full { display: none; }
-  .snapshot-action-short { display: inline; }
-}
 .figure-dialog-actions { justify-content: flex-end; margin-top: 14px; }
 .figure-editor-dialog .figure-dialog-actions {
   position: sticky; bottom: 0; padding: 10px 0; background: var(--ui-surface);

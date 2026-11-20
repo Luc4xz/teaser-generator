@@ -2,7 +2,7 @@ import React from 'react';
 
 const STEP_LABELS = {
   concept: {source:'Read paper',summary:'Prepare context',concept:'Extract concept',check:'Validate'},
-  image: {source:'Read brief',plan:'Plan',prompt:'Write prompt',render:'Render',check:'Check image'},
+  image: {source:'Read brief',plan:'Plan',prompt:'Write prompt',render:'Render',check:'Check image',evaluate:'Evaluate cover'},
 };
 
 export default function RunProgress({run, busy, onRetry, onReconnect, kind='image'}) {

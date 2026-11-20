@@ -6,6 +6,7 @@ import { inputSnapshot, startWorkflow, pollWorkflow, addVersion, startConceptRun
 import { loadWorkspace, saveWorkspace, listProjects, loadProject, activateProject } from './storage.js';
 import { identifyProject, createProject } from './projects.js';
 import WorkspaceDialog from './WorkspaceDialog.jsx';
+import StudioDialog from './StudioDialog.jsx';
 import Icon from './StudioIcon.jsx';
 import GenerationButton from './GenerationButton.jsx';
 import FigureEditor from './FigureEditor.jsx';
@@ -52,20 +53,13 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
   const collaboration = useBoard(project,setProject,session);
   const layout = useRef(null);
   const [view,navigate] = useStudioView();
-  const snapshotDetails = useRef(null);
+  const snapshotScroll = useRef(null);
   const conceptScroll = useRef(null);
   const [conceptOpen,setConceptOpen] = useState(true);
   const selectSnapshot = useCallback((id, focusDetails=false)=>{
     setSelectedId(id);
-    setRefineOpen(false);
-    if (focusDetails) layout.current?.revealPanel('concept',{scroll:false});
-    requestAnimationFrame(()=>{
-      const details = snapshotDetails.current;
-      if (!details?.getClientRects().length) return;
-      details.open = true;
-      details.scrollIntoView({block:'start'});
-      if (focusDetails) details.querySelector('summary')?.focus({preventScroll:true});
-    });
+    if (focusDetails) layout.current?.revealPanel('snapshot',{focus:true});
+    snapshotScroll.current?.scrollTo({top:0});
   },[]);
   const [workspaceOpen,setWorkspaceOpen] = useState(false);
   const [settingsOpen,setSettingsOpen] = useState(false);
@@ -84,10 +78,9 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
   const [feedback,setFeedback] = useState('');
   const [restartFrom,setRestartFrom] = useState('plan');
   const [editedPrompt,setEditedPrompt] = useState('');
-  const [refineOpen,setRefineOpen] = useState(false);
+  const [refineId,setRefineId] = useState(null);
   const [editFigureId,setEditFigureId] = useState(null);
   const [reviewFigureId,setReviewFigureId] = useState(null);
-  const [briefParent,setBriefParent] = useState(null);
   const lastAttempt = useRef(null);
   const [uploading,setUploading] = useState(false);
   const [notice,setNotice] = useState('');
@@ -99,6 +92,7 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
   const images = project.canvasImages || [];
   const contributors = boardContributors(images,session);
   const selected = images.find(item => item.id === (selectedId || project.activeCanvasId)) || images.at(-1);
+  const refining = images.find(item=>item.id === refineId);
   const editingFigure = images.find(item=>item.id === editFigureId);
   const reviewingFigure = images.find(item=>item.id === reviewFigureId);
   const reviewBySnapshot = new Map(collaboration.reviews.map(review=>[review.snapshotId,review]));
@@ -138,7 +132,10 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
     return () => { active = false; };
   },[project,storageReady]);
   useEffect(() => {
-    if(storageReady && project.pendingRun && !operation.current) followRun(project.pendingRun);
+    if(storageReady && project.pendingRun && !operation.current) {
+      layout.current?.revealPanel('concept',{scroll:false,replace:'paper'});
+      followRun(project.pendingRun);
+    }
   },[storageReady,project.projectId]);
   useEffect(()=>()=>{
     operation.current?.controller.abort();
@@ -181,10 +178,10 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
     lastAttempt.current = null;
     setSelectedId(null);
     setConceptOpen(true);
-    if (snapshotDetails.current) snapshotDetails.current.open = false;
+    layout.current?.resetPanels();
+    snapshotScroll.current?.scrollTo({top:0});
     conceptScroll.current?.scrollTo({top:0});
-    setBriefParent(null);
-    setRefineOpen(false);
+    setRefineId(null);
     setFeedback('');
     setEditedPrompt('');
     setRestartFrom('plan');
@@ -248,8 +245,11 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
     setConceptRun(previous=>previous?.status === 'interrupted' ? {...previous,status:'queued'} : previous);
     try {
       const concept = await pollConceptRun(attempt.id,setConceptRun,undefined,undefined,current.controller.signal);
-      if (operation.current !== current) return;
+      if (operation.current !== current || conceptSource(project) !== attempt.source) return;
       setProject(prev => conceptSource(prev) === attempt.source ? {...prev,scientificConcept:concept,conceptSource:attempt.source} : prev);
+      setConceptOpen(true);
+      conceptScroll.current?.scrollTo({top:0});
+      layout.current?.revealPanel('concept',{focus:true,reveal:true,replace:'paper'});
     } catch(error) {
       if (operation.current === current && !(error instanceof RunStoppedError)) {
         setConceptRun(prev=>prev?.status==='failed'?prev:{...prev,status:'interrupted',message:error.message});
@@ -260,9 +260,6 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
     if (disabled || !textModelReady || !project.paper.trim()) return;
     const current = trackOperation('concept');
     if (!current) return;
-    layout.current?.revealPanel('concept',{scroll:false});
-    setConceptOpen(true);
-    conceptScroll.current?.scrollTo({top:0});
     conceptAttempt.current=null;
     setConceptRun({status:'queued',message:'Submitting your paper for concept generation…',steps:[]});
     const snapshot = inputSnapshot(project);
@@ -291,7 +288,8 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
       const result=await pollWorkflow(attempt.id,setRun,undefined,undefined,current.controller.signal);
       if (operation.current !== current) return;
       setProject(prev=>addVersion(prev,result,attempt.snapshot,attempt.options,attempt.id));
-      setSelectedId(null);setRefineOpen(false);setFeedback('');
+      setConceptOpen(false);
+      setSelectedId(null);setRefineId(null);setFeedback('');
     } catch(error) {
       if (operation.current !== current) return;
       if (error instanceof RunStoppedError) {
@@ -321,22 +319,21 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
       if (operation.current === current) setRun({status:'failed',message:error.message});
     } finally {finishOperation(current);}
   }
-  function generate(event) {event?.preventDefault();if(disabled || !textModelReady || !imageModelReady || !conceptReady)return;begin(inputSnapshot(project),{parentId:briefParent});}
-  function openRefine() {setEditedPrompt(selected.drawingBrief||'');setFeedback('');setRestartFrom('plan');setRefineOpen(true);}
-  function restoreBrief() {
-    const snapshot=selected.inputSnapshot;
-    if(!snapshot){setNotice('This older version has no saved input snapshot. Use the current paper and brief to start a new version.');return;}
-    patch(inputSnapshot({...project,...snapshot,scientificConcept:snapshot.scientificConcept || null,conceptSource:snapshot.conceptSource || ''}));
-    setBriefParent(selected.id);
-    setRefineOpen(false);
-    layout.current?.revealPanel('paper',{scroll:false});
-    setConceptOpen(true);
-    conceptScroll.current?.scrollTo({top:0,behavior:'smooth'});
-    document.querySelector('.input-scroll')?.scrollTo({top:0,behavior:'smooth'});
+  function generate(event) {event?.preventDefault();if(disabled || !textModelReady || !imageModelReady || !conceptReady)return;begin(inputSnapshot(project));}
+  function openRefine() {
+    setEditedPrompt(selected.drawingBrief || '');
+    setFeedback('');
+    setRestartFrom('plan');
+    setRefineId(selected.id);
   }
-  function refine() {
-    const snapshot=inputSnapshot(selected.inputSnapshot || project);
-    begin({...snapshot,textModel:project.textModel,imageModel:project.imageModel},{parentId:selected.id,feedback,restartFrom,drawingPrompt:editedPrompt});
+  function refine(event) {
+    event.preventDefault();
+    if (!refining || disabled || operation.current || !imageModelReady ||
+        (restartFrom === 'plan' ? !textModelReady : !editedPrompt.trim())) return;
+    const snapshot=inputSnapshot(refining.inputSnapshot || project);
+    setRefineId(null);
+    layout.current?.revealPanel('concept',{replace:'paper'});
+    begin({...snapshot,textModel:project.textModel,imageModel:project.imageModel},{parentId:refining.id,feedback,restartFrom,drawingPrompt:editedPrompt});
   }
   function retryRun() {
     const previous=lastAttempt.current;if(!previous)return;
@@ -354,6 +351,8 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
     selectSnapshot(edited.id,true);
   }
   return <WorkspaceColumns ref={layout} canvasRef={canvas} canvasBusy={busy} view={view} onWorkspace={()=>navigate('workspace')}
+    defaultSource={project.scientificConcept ? 'concept' : 'paper'}
+    snapshotStatus={selected ? `Version ${images.indexOf(selected)+1}` : ''}
     page={<StudioTools key={project.projectId} view={view} projectName={project.projectName} status={collaboration.status}
       reviews={collaboration.reviews} userId={session.userId} onReview={setReviewFigureId}
       images={images} contributors={contributors} onBack={()=>{
@@ -362,10 +361,7 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
       }} onInspect={id=>{navigate('workspace');selectSnapshot(id,true);}}/>}
     header={
     <header className="workspace-header">
-      <div className="studio-brand">
-        <span className="studio-brand-icon"><Icon name="research" size={20}/></span>
-        {view === 'workspace' ? <h1>Research illustration</h1> : <p>Research illustration</p>}
-      </div>
+      {view !== 'workspace' && <p className="studio-brand">Research illustration</p>}
       <div className="studio-topbar-actions">
         <button type="button" className="new-project-button" onClick={openWorkspace} disabled={disabled} aria-label="Workspace"
           title={`Workspace · ${project.projectName}`} aria-haspopup="dialog" aria-controls="workspace-dialog">
@@ -391,6 +387,8 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
     } paper={
         <div className="input-form">
           <div className="input-scroll">
+          {project.scientificConcept && <button type="button" className="secondary-action concept-paper-button"
+            onClick={()=>layout.current?.revealPanel('concept',{focus:true,replace:'paper'})}>Scientific concept</button>}
           <fieldset disabled={disabled}>
             <div className="source-artifact-row"><div className="paper-source-card">
             <div className="input-section-label"><label htmlFor="paper-file">Source paper</label></div>
@@ -405,7 +403,6 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
             </div>
             </div></div>
             <details className="paper-text"><summary>{project.paper?'Review extracted paper text':'Or paste paper text'}</summary><textarea aria-label="Paper text" value={project.paper} rows={7} onChange={e=>patch({paper:e.target.value,fileName:''})} placeholder="Paste an abstract or paper text…"/><p>Check PDF extraction, especially equations and columns.</p></details>
-        {briefParent && <p className="branch-note">Editing the brief from a saved version. Generate will create a new version.<button onClick={()=>setBriefParent(null)} type="button">Start independently</button></p>}
             <details className="brief-fields foldable-options" open>
               <summary>Image direction <span>(style & purpose)</span></summary>
               <div className="fold-content">
@@ -440,46 +437,12 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
     } concept={
       <>
         <div className="concept-scroll" ref={conceptScroll}>
-        <ConceptPanel project={project} run={conceptRun} extracting={extracting} disabled={disabled} onChange={concept=>patch({scientificConcept:concept})} open={conceptOpen} onOpenChange={setConceptOpen}/>
-        {!project.scientificConcept && !extracting && <p className="concept-column-empty">Upload a paper and click Generate concept in the left column. Your editable concept will appear here.</p>}
-        {selected && <details ref={snapshotDetails} className="review-snapshot review-disclosure">
-          <summary><span className="review-disclosure-title">Selected snapshot</span><span className="review-disclosure-status">Version {images.indexOf(selected)+1}</span></summary>
-          <div className="review-snapshot-body">
-            <article className="image-card"><div className="image-card-bar"><div><button type="button" onClick={()=>dialog.current?.showModal()} aria-label="Expand image"><Icon name="expand" size={17}/></button><button type="button" onClick={()=>downloadImage(selected)}><Icon name="download" size={17}/><span>Download</span></button></div></div><button type="button" className="canvas-image" onClick={()=>dialog.current?.showModal()} aria-label="View generated image at full size"><img src={selected.image} alt={selectedReview?.altText || selected.figure?.altText || selected.groundingPlan?.subject || selected.userPrompt || 'Generated research illustration'}/></button></article>
-            <div className="figure-snapshot-controls">
-              <div className="figure-snapshot-actions" role="group" aria-label="Snapshot actions">
-                <button type="button" className="secondary-action" aria-label="Edit figure" onClick={()=>setEditFigureId(selected.id)} disabled={disabled}>
-                  Edit<span className="snapshot-action-detail"> figure</span>
-                </button>
-                <button type="button" className="secondary-action" aria-label={selectedReview ? 'Open review' : 'Request review'} onClick={()=>setReviewFigureId(selected.id)} disabled={disabled}>
-                  <span className="snapshot-action-full">{selectedReview ? 'Open review' : 'Request review'}</span><span className="snapshot-action-short">Review</span>
-                </button>
-                <button type="button" className="secondary-action" aria-label="Refine this version" disabled={disabled} onClick={openRefine}>
-                  Refine<span className="snapshot-action-detail"> version</span>
-                </button>
-                <button type="button" className="secondary-action" aria-label="Revisit concept & brief" disabled={disabled} onClick={restoreBrief}>Revisit</button>
-              </div>
-              <div className="figure-snapshot-meta">
-                {selectedReview && <ReviewBadge status={selectedReview.status}/>}
-                <p>{selected.revisionFeedback ? `Revision: ${selected.revisionFeedback}` : 'Initial direction'}</p>
-              </div>
-            </div>
-            {refineOpen && <section className="refinement-card" aria-label="Refine selected version">
-              <h3>Improve version {images.indexOf(selected)+1}</h3>
-              <label className="brief-field">Where should we restart?<select disabled={busy} value={restartFrom} onChange={e=>setRestartFrom(e.target.value)}><option value="plan">Visual plan — rethink what to show</option><option value="render">Drawing prompt — adjust the image direction</option></select></label>
-              <label className="brief-field">What should change?<textarea disabled={busy} maxLength={6000} rows={3} value={feedback} onChange={e=>setFeedback(e.target.value)} placeholder="For example: emphasize the relationship between the two ideas; simplify the background."/></label>
-              {restartFrom==='render' && <label className="brief-field">Edit the drawing prompt (custom edits are not structure-validated)<textarea disabled={busy} rows={5} maxLength={32000} value={editedPrompt} onChange={e=>setEditedPrompt(e.target.value)}/></label>}
-              <p>Creates a new image from this version’s saved instructions and your feedback. It does not edit the existing pixels. Earlier versions stay available.</p>
-              {!selected.inputSnapshot && <p>This older version has no saved brief; refinement uses the current paper and input.</p>}
-              <div className="refinement-buttons"><button type="button" className="generate-button" disabled={disabled || !imageModelReady || (restartFrom==='plan'&&!textModelReady) || (restartFrom==='render'&&!editedPrompt.trim())} onClick={refine}>Create next version <Icon name="arrow"/></button><button type="button" disabled={busy} onClick={()=>setRefineOpen(false)}>Cancel</button></div>
-            </section>}
-            <ConceptTrace item={selected}/>
-            <p className="canvas-footnote">{selected.paperName ? `Source: ${selected.paperName}` : 'Prompt-led generation'} · {selected.providerNote || 'AI-generated image. Review before use.'}</p>
-          </div>
-        </details>}
+          <button type="button" className="secondary-action concept-paper-button" onClick={()=>layout.current?.revealPanel('paper',{focus:true,replace:'concept'})}>Paper settings</button>
+          <ConceptPanel project={project} run={conceptRun} extracting={extracting} disabled={disabled} onChange={concept=>patch({scientificConcept:concept})} open={conceptOpen} onOpenChange={setConceptOpen}/>
+          {!project.scientificConcept && !extracting && !conceptRun && <p className="concept-column-empty">Add a paper in Paper settings, then generate a concept.</p>}
         </div>
         <div className="input-actions concept-actions">
-          {!conceptReady && <p className="concept-action-hint">{project.scientificConcept ? 'Complete all concept fields. If the paper changed, regenerate the concept on the left.' : 'Generate a concept to continue.'}</p>}
+          {project.scientificConcept && !conceptReady && <p className="concept-action-hint">Complete the concept fields, or regenerate the concept from Paper settings if the source changed.</p>}
           <RunProgress run={run} busy={busy} onRetry={lastAttempt.current ? retryRun : undefined}
             onReconnect={lastAttempt.current?.id ? ()=>followRun(lastAttempt.current) : undefined}/>
           <GenerationButton busy={busy} disabled={disabled || !textModelReady || !imageModelReady || !conceptReady} onClick={generate} onStop={stopGeneration}>
@@ -487,18 +450,54 @@ function TeaserWorkspace({session, setSession, appearance, changeAppearance}) {
           </GenerationButton>
         </div>
       </>
-    } canvas={
-      <>
-        <SnapshotCanvas images={images} selectedId={selected?.id} contributors={contributors}
-          onSelect={selectSnapshot} onMoveMany={collaboration.moveMany}/>
-      </>
-    }>
+    } snapshot={
+        <div className="snapshot-scroll" ref={snapshotScroll}>
+          {selected ? <div className="review-snapshot-body">
+            <article className="image-card"><div className="image-card-bar"><div><button type="button" onClick={()=>dialog.current?.showModal()} aria-label="Expand image"><Icon name="expand" size={17}/></button><button type="button" onClick={()=>downloadImage(selected)}><Icon name="download" size={17}/><span>Download</span></button></div></div><button type="button" className="canvas-image" onClick={()=>dialog.current?.showModal()} aria-label="View generated image at full size"><img src={selected.image} alt={selectedReview?.altText || selected.figure?.altText || selected.groundingPlan?.subject || selected.userPrompt || 'Generated research illustration'}/></button></article>
+            <div className="figure-snapshot-controls">
+              <div className="figure-snapshot-actions" role="group" aria-label="Snapshot actions">
+                <button type="button" className="secondary-action" aria-label="Edit figure" onClick={()=>setEditFigureId(selected.id)} disabled={disabled}>Edit</button>
+                <button type="button" className="secondary-action" aria-haspopup="dialog" onClick={openRefine} disabled={disabled}>Refine</button>
+              </div>
+              <div className="figure-snapshot-meta">
+                {selectedReview && <ReviewBadge status={selectedReview.status}/>}
+                <p>{selected.revisionFeedback ? `Revision: ${selected.revisionFeedback}` : 'Initial direction'}</p>
+              </div>
+            </div>
+            <ConceptTrace item={selected}/>
+            <p className="canvas-footnote">{selected.paperName ? `Source: ${selected.paperName}` : 'Prompt-led generation'} · {selected.providerNote || 'AI-generated image. Review before use.'}</p>
+          </div> : <p className="concept-column-empty">Select an image on the canvas to see its prompt, edit it, or refine it.</p>}
+        </div>
+    } canvas={navigation=><SnapshotCanvas images={images} selectedId={selected?.id} contributors={contributors}
+      navigation={navigation} onSelect={selectSnapshot} onReview={setReviewFigureId} reviewDisabled={disabled} onMoveMany={collaboration.moveMany}/>}>
     {resetColumnWidths=><>
     <WorkspaceDialog open={workspaceOpen} project={project} projects={workspaceProjects} loading={workspaceLoading} working={workspaceBusy} error={workspaceError} onSave={saveCurrentProject} onCreate={(name,currentName)=>switchProject(null,currentName,name)} onOpen={(id,currentName)=>switchProject(id,currentName)} onClose={()=>setWorkspaceOpen(false)}/>
     <SettingsDialog open={settingsOpen} session={session} project={project} models={models} status={modelStatus} disabled={disabled}
       appearance={appearance} changeAppearance={changeAppearance}
       onSwitchAccount={()=>setSession(null)} onResetLayout={resetColumnWidths} onSelect={(field,value)=>patch({[field]:value})}
       onReload={()=>setModelAttempt(value=>value+1)} onClose={()=>setSettingsOpen(false)}/>
+    <StudioDialog id="refine-snapshot-dialog" open={Boolean(refining)} title="Refine snapshot"
+      description={refining ? `Version ${images.indexOf(refining)+1}` : ''} onClose={()=>setRefineId(null)}>
+      {refining && <form className="refinement-form" onSubmit={refine}>
+        <label className="brief-field">Where should we restart?
+          <select value={restartFrom} onChange={e=>setRestartFrom(e.target.value)}>
+            <option value="plan">Visual plan — rethink what to show</option>
+            <option value="render">Drawing prompt — adjust the image direction</option>
+          </select>
+        </label>
+        <label className="brief-field">What should change?
+          <textarea maxLength={6000} rows={3} value={feedback} onChange={e=>setFeedback(e.target.value)} placeholder="For example, simplify the background."/>
+        </label>
+        {restartFrom==='render' && <label className="brief-field">Edit the drawing prompt (custom edits are not structure-validated)
+          <textarea rows={8} maxLength={32000} value={editedPrompt} onChange={e=>setEditedPrompt(e.target.value)}/>
+        </label>}
+        {!refining.inputSnapshot && <p>This version uses the current paper and input because its original brief is unavailable.</p>}
+        <div className="refinement-buttons">
+          <button type="button" className="secondary-action" onClick={()=>setRefineId(null)}>Cancel</button>
+          <button type="submit" className="figure-primary-action" disabled={disabled || !imageModelReady || (restartFrom === 'plan' ? !textModelReady : !editedPrompt.trim())}>Create next version</button>
+        </div>
+      </form>}
+    </StudioDialog>
     {editingFigure && <FigureEditor key={editingFigure.id} snapshot={editingFigure} images={images}
       onSave={saveFigureEdit} onClose={()=>setEditFigureId(null)}/>}
     {reviewingFigure && <FigureReview key={reviewingFigure.id} snapshot={reviewingFigure} number={images.indexOf(reviewingFigure)+1}

@@ -67,7 +67,8 @@ def _update(key, stage, message, **artifacts):
 
 def _work(key, request):
     try:
-        provider = 'selected' if request.image_model else os.getenv('TEASER_PROVIDER', 'flux-demo').strip().lower()
+        cover = request.output_kind == 'cover'
+        provider = 'selected' if request.image_model or cover else os.getenv('TEASER_PROVIDER', 'flux-demo').strip().lower()
         if provider not in ('flux-demo', 'openai', 'selected'):
             raise HTTPException(503, 'The version workflow supports TEASER_PROVIDER=openai or flux-demo.')
         if request.restart_from == 'render':
@@ -96,11 +97,22 @@ def _work(key, request):
                     visualPlan=plan.get('groundingPlan'), sourceNotes=plan.get('sourceNotes',[]),
                     generationMode=plan.get('generationMode'), notes=plan.get('generationNotes',[]))
             prompt = plan['drawingBrief'] if provider != 'flux-demo' else build_flux_prompt(request,plan)
-        provider_label = resolve_model(request.image_model, 'image').label if request.image_model else 'OpenAI' if provider == 'openai' else 'FLUX'
+        provider_label = resolve_model(request.image_model, 'image').label if provider == 'selected' else 'OpenAI' if provider == 'openai' else 'FLUX'
         _update(key,'render',f'Sending the drawing instructions to {provider_label}. The image may take a little while.',drawingPrompt=prompt)
         render = render_openai_prompt if provider == 'openai' else render_flux_prompt
         progress = lambda stage,message:_update(key,stage,message)
-        result = render_image(prompt,plan,request.image_model,progress) if request.image_model else render(prompt,plan,progress)
+        if cover:
+            from .cover_quality import render_reviewed_cover
+
+            def report(artifacts):
+                with _lock:
+                    _active_run(key)['artifacts'].update(artifacts)
+
+            result = render_reviewed_cover(request, prompt, plan,
+                lambda prompt, plan, progress: render_image(prompt, plan, request.image_model, progress),
+                progress, report)
+        else:
+            result = render_image(prompt,plan,request.image_model,progress) if request.image_model else render(prompt,plan,progress)
         with _lock:
             run = _active_run(key)
             for step in run['steps']:
@@ -108,7 +120,10 @@ def _work(key, request):
                 elif step['status'] == 'pending':step['status'] = 'skipped'
             result.update(parentVersionId=request.parent_version_id or None, restartFrom=request.restart_from,
                           revisionFeedback=request.feedback, workflowSteps=deepcopy(run['steps']))
-            run.update(status='complete',message='Image ready. Review it, then refine from any saved version.',result=result)
+            message = ('Image generated, but automated quality checks did not pass. Review the image and findings before use.'
+                       if result.get('coverReview', {}).get('accepted') is False
+                       else 'Image ready. Review it, then refine from any saved version.')
+            run.update(status='complete',message=message,result=result)
     except RunCancelled:
         return
     except Exception as error:
@@ -131,7 +146,13 @@ def _fail(key, error, fallback):
 
 @router.post('/api/teaser/runs',status_code=202)
 def start_run(request: WorkflowRequest, session: Annotated[Optional[dict], Depends(require_session)] = None):
-    if request.image_model:
+    if request.output_kind == 'cover':
+        from .cover_quality import load_policy, evaluator_model
+        from .cover_library import select_references
+        load_policy()
+        select_references(request)
+        evaluator_model(request)
+    if request.image_model or request.output_kind == 'cover':
         resolve_model(request.image_model, 'image')
         if request.restart_from == 'plan': resolve_model(request.text_model, 'text')
     elif os.getenv('TEASER_PROVIDER', 'flux-demo').strip().lower() == 'openai':
@@ -140,7 +161,8 @@ def start_run(request: WorkflowRequest, session: Annotated[Optional[dict], Depen
         raise HTTPException(422,'A saved drawing prompt is required to restart rendering.')
     if request.restart_from == 'plan' and not any([request.paper.strip(),request.user_prompt.strip(),request.feedback.strip()]):
         raise HTTPException(422,'Add a paper or image request first.')
-    return _enqueue(request, _work, STEPS, session)
+    steps = STEPS + [('evaluate', 'Evaluate cover artwork')] if request.output_kind == 'cover' else STEPS
+    return _enqueue(request, _work, steps, session)
 
 
 def _execute(key, request, worker):

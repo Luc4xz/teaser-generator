@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import sys
 from pathlib import Path
@@ -6,7 +7,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from httpx import ASGITransport, AsyncClient
 from app import boards
 
 
@@ -43,6 +45,47 @@ class BoardTests(unittest.TestCase):
         item=boards.read_board(self.board,self.a)['snapshots'][0]
         self.assertEqual(item['position'],{'x':130,'y':260})
         self.assertEqual(item['creator']['userId'],'a')
+
+    def test_open_board_receives_committed_updates_and_can_catch_up(self):
+        async def check():
+            app = FastAPI()
+            app.include_router(boards.router)
+            path = f'/api/boards/{self.board}'
+            async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as reader, \
+                    AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as writer:
+                initial = (await reader.get(path, headers={'Authorization':self.b})).json()
+                url = f"{path}/updates?after={initial['revision']}"
+                self.assertEqual((await reader.get(url)).status_code, 401)
+                update = asyncio.create_task(reader.get(url, headers={'Authorization':self.b}))
+
+                async def wait_for_listener():
+                    while self.board not in boards._listeners:
+                        self.assertFalse(update.done())
+                        await asyncio.sleep(.005)
+
+                try:
+                    await asyncio.wait_for(wait_for_listener(), timeout=2)
+                    saved = await writer.put(f'{path}/snapshots/new', headers={'Authorization':self.a},
+                                             json={'id':'new','image':'data:image/png;base64,AA=='})
+                    self.assertEqual(saved.status_code, 200)
+                    event = (await asyncio.wait_for(update, timeout=2)).json()
+                    self.assertEqual([item['id'] for item in event['snapshots']], ['new'])
+                finally:
+                    if not update.done():
+                        update.cancel()
+                        await asyncio.gather(update, return_exceptions=True)
+
+                for x in (12, 24):
+                    moved = await writer.patch(f'{path}/snapshots/new/position', headers={'Authorization':self.a},
+                                               json={'x':x,'y':18})
+                    self.assertEqual(moved.status_code, 200)
+                since_insert = f"{path}/updates?after={event['revision']}"
+                catchup = (await reader.get(since_insert, headers={'Authorization':self.b})).json()
+                self.assertGreater(catchup['revision'], event['revision'])
+                self.assertEqual(catchup['positions'], [{'id':'new','position':{'x':24,'y':18}}])
+                self.assertNotIn('snapshots', catchup)
+
+        asyncio.run(check())
 
     def test_auth_expiry_and_missing_board(self):
         with self.assertRaises(HTTPException) as caught:

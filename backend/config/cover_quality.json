@@ -1,0 +1,88 @@
+{
+  "version": 3,
+  "max_attempts": 2,
+  "minimum_weighted_score": 7.5,
+  "dimensions": [
+    {
+      "id": "creativity",
+      "weight": 0.2,
+      "minimum": 6,
+      "description": "Original, memorable scientific metaphor; avoids generic stock imagery and copied reference subjects."
+    },
+    {
+      "id": "clarity",
+      "weight": 0.15,
+      "minimum": 7,
+      "description": "One immediately readable focal idea with strong visual hierarchy at thumbnail size."
+    },
+    {
+      "id": "scientific_alignment",
+      "weight": 0.25,
+      "minimum": 7,
+      "description": "Visible subject and relationships match the supplied concept without contradicting its evidence or limitations. This is visual alignment, not verification of the paper."
+    },
+    {
+      "id": "cover_composition",
+      "weight": 0.2,
+      "minimum": 7,
+      "description": "Unified portrait editorial artwork with intentional negative space, not a graphical abstract or educational diagram."
+    },
+    {
+      "id": "craft",
+      "weight": 0.1,
+      "minimum": 6,
+      "description": "Intentional palette, lighting, texture and coherent geometry; no distracting rendering artifacts."
+    },
+    {
+      "id": "visual_coherence",
+      "weight": 0.1,
+      "minimum": 7,
+      "description": "All elements inhabit one scene or continuous material composition, rather than disconnected symbols."
+    }
+  ],
+  "exclusions": [
+    {
+      "id": "icon_collage",
+      "enabled": true,
+      "hard_reject": true,
+      "description": "Disconnected pictograms, icon grids, sticker collections or symbolic clip-art assembled as an explanation.",
+      "repair": "Replace all icons with a single tangible subject and integrate relationships into its material or environment."
+    },
+    {
+      "id": "flowchart",
+      "enabled": true,
+      "hard_reject": true,
+      "description": "Process boxes, diagrammatic connector arrows, numbered steps or a pipeline. Natural physical trajectories alone are not a flowchart.",
+      "repair": "Remove arrows, boxes and steps. Convey the mechanism through physical interaction in one scene."
+    },
+    {
+      "id": "infographic_panels",
+      "enabled": true,
+      "hard_reject": true,
+      "description": "Multiple explanatory panels, dashboards, data plots, legends or before/after layouts.",
+      "repair": "Unify the composition into one full-bleed editorial image with a single focal hierarchy."
+    },
+    {
+      "id": "rendered_text",
+      "enabled": true,
+      "hard_reject": false,
+      "description": "Visible letters, labels, journal branding, masthead, signature or watermark added as part of the artwork.",
+      "repair": "Remove all rendered typography and branding; leave quiet negative space for later editorial typesetting."
+    },
+    {
+      "id": "scientific_contradiction",
+      "enabled": true,
+      "hard_reject": true,
+      "description": "A visible claim contradicts the supplied concept or invents quantitative evidence or causal certainty.",
+      "repair": "Return to the approved concept and show only supported relationships, making metaphor visually apparent."
+    },
+    {
+      "id": "reference_copy",
+      "enabled": true,
+      "hard_reject": true,
+      "description": "The candidate reproduces a reference's distinctive subject/composition instead of interpreting the current paper.",
+      "repair": "Invent a new subject-specific composition; borrow only broad craft principles."
+    }
+  ],
+  "on_rejection": "return_for_review"
+}

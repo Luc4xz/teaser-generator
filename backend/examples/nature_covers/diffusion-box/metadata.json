@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "diffusion-box",
+  "image": "image.png",
+  "artwork_title": "Anomalous diffusion via deep learning",
+  "title_origin": "publisher_cover_heading",
+  "author": "Courtesy of Yongbing Zhang, Harbin Institute of Technology (Shenzhen)",
+  "cover_designer": "Alex Wing",
+  "journal": "Nature Computational Science",
+  "issue_date": "2024-10",
+  "description": "Pale violet and blue fluid plumes descend through a dark field, making diffusion tangible as an immersive material event.",
+  "paper_title": "Reliable deep learning in anomalous diffusion against out-of-distribution dynamics",
+  "style_family": "abstract-material",
+  "tags": [
+    "diffusion",
+    "particles",
+    "learning",
+    "fluid",
+    "dynamics",
+    "abstract"
+  ],
+  "design_principles": [
+    "Continuous organic forms rather than discrete symbols",
+    "Material texture conveys the mechanism",
+    "Strong silhouette against negative space"
+  ],
+  "contains_publisher_typography": true,
+  "reference_instructions": "Use only broad composition, lighting, material and visual hierarchy. Do not copy subject matter, lettering, logos, layout details or artwork.",
+  "rights": "Copyright remains with the credited creators/publisher. Public cover preview stored as a reference; no redistribution license is asserted.",
+  "retrieved_on": "2026-11-19",
+  "source_url": "https://www.nature.com/natcomputsci/volumes/4/issues/10",
+  "image_url": "https://media.springernature.com/w440/springer-static/cover-hires/journal/43588/4/10",
+  "paper_url": "https://doi.org/10.1038/s43588-024-00703-7",
+  "image_sha256": "f85ae5fbf90b54f32711bb7d85a63b7ef999efefaba8c19fc4e5f1480d704954",
+  "mime_type": "image/png"
+}

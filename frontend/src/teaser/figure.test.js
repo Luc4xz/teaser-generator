@@ -31,6 +31,15 @@ test('a connector shares the arrow geometry without a directional tip',()=>{
   assert.equal(figureGeometry({...arrow,directed:false},100,200).tip,null);
 });
 
+test('editing a cover invalidates its previous automated review',()=>{
+  const reviewed = {...source,coverReview:{accepted:true,weightedScore:9},coverReviews:[{accepted:true}]};
+  const draft = openFigureDraft(reviewed,[reviewed]);
+  const saved = newFigureVersion(reviewed,draft,png,{userId:'second',displayName:'Editor'},2);
+  assert.equal(saved.coverReview,undefined);
+  assert.equal(saved.coverReviews,undefined);
+  assert.equal(reviewed.coverReview.accepted,true);
+});
+
 test('drawings stay editable after saving and move as one stroke',()=>{
   const draft = openFigureDraft(source,[source]);
   const points = [[.25,.25],[.5,.125],[.75,.375]];

@@ -8,8 +8,9 @@ import StudioFoldMark from './StudioFoldMark.jsx';
 import Icon from './StudioIcon.jsx';
 export { readSession };
 const EMPTY_REVIEW_STATE = {members:[], reviews:[]};
-export function boardRequest(path, session, method='GET', body) {
-  return withRequestTimeout(async signal=>{
+export function boardRequest(path, session, method='GET', body, cancellation) {
+  return withRequestTimeout(async timeout=>{
+    const signal = cancellation ? AbortSignal.any([cancellation,timeout]) : timeout;
     let response;
     try {
       response = await fetch(`${API_BASE}/api/boards${path}`, {method, signal, headers: {'Content-Type':'application/json', Authorization:`Bearer ${session?.token || ''}`}, ...(body ? {body:JSON.stringify(body)} : {})});
@@ -17,6 +18,7 @@ export function boardRequest(path, session, method='GET', body) {
       throw new Error('Could not reach the board server. Check your connection and try again.');
     }
     checkSessionResponse(response);
+    if (response.status === 204) return null;
     const data = await response.json().catch(()=>{
       throw new Error('The board service is unavailable at this app address. Check that you opened the correct app.');
     });
@@ -27,49 +29,113 @@ export function boardRequest(path, session, method='GET', body) {
     return data;
   });
 }
+
+function mergeSnapshots(previous, snapshots, positions) {
+  const images = new Map(previous.map(item=>[item.id,item]));
+  for (const snapshot of snapshots || []) {
+    const local = images.get(snapshot.id);
+    if (JSON.stringify(local) !== JSON.stringify(snapshot)) images.set(snapshot.id,snapshot);
+  }
+  for (const {id,position} of positions || []) {
+    const local = images.get(id);
+    if (local && (local.position?.x !== position.x || local.position?.y !== position.y)) {
+      images.set(id,{...local,position});
+    }
+  }
+  const merged = [...images.values()];
+  return merged.length === previous.length && merged.every((item,index)=>item === previous[index]) ? previous : merged;
+}
+
 export function useBoard(project, setProject, session) {
   const [status,setStatus] = useState('');
   const [reviewState,setReviewState] = useState(EMPTY_REVIEW_STATE);
   const latest = useRef(project); latest.current = project;
   const moveQueues = useRef(new Map());
   const reviewRevision = useRef(0);
+  const publishPending = useRef(null);
   const board = project.sharedBoardId;
   useEffect(() => {
     if (!board || !session) {setStatus(board ? 'Sign in to sync' : 'Private · saved on this device');return;}
-    let stopped = false, timer;
-    async function sync() {
+    const connection = new AbortController();
+    const {signal} = connection;
+    const path = `/${encodeURIComponent(board)}`;
+    let revision = null, ready = false, publishing = false, publishError = '';
+    const known = new Set();
+    let timer;
+
+    async function publish() {
+      if (!ready || publishing || signal.aborted) return;
+      publishing = true;
       try {
-        const queueAtStart = moveQueues.current.get(board);
-        const savingAtStart = queueAtStart?.pending;
-        const reviewAtStart = reviewRevision.current;
-        const remote = await boardRequest(`/${board}`,session);
-        if(stopped)return;
-        if (reviewAtStart === reviewRevision.current) {
-          setReviewState({board,members:remote.members || [],reviews:remote.reviews || []});
+        while (!signal.aborted) {
+          const snapshot = latest.current.canvasImages.find(item=>!known.has(item.id) && item.creator?.userId === session.userId);
+          if (!snapshot) break;
+          await boardRequest(`${path}/snapshots/${encodeURIComponent(snapshot.id)}`,session,'PUT',snapshot,signal);
+          known.add(snapshot.id);
         }
-        const known = new Set(remote.snapshots.map(s=>s.id));
-        const pending = latest.current.canvasImages.filter(s=>!known.has(s.id) && s.creator?.userId === session.userId);
-        for (const snapshot of pending) {
-          if(stopped)return;
-          await boardRequest(`/${board}/snapshots/${snapshot.id}`,session,'PUT',snapshot);
-        }
-        if(stopped)return;
-        // A read that overlaps a write may report the card's previous position.
-        if (queueAtStart !== moveQueues.current.get(board) || savingAtStart) return;
-        setProject(prev => {
-          if(prev.sharedBoardId !== board)return prev;
-          const merged = new Map(prev.canvasImages.map(s=>[s.id,s]));
-          remote.snapshots.forEach(s=>merged.set(s.id,s));
-          const images = [...merged.values()];
-          return JSON.stringify(images) === JSON.stringify(prev.canvasImages) ? prev : {...prev,canvasImages:images};
-        });
-        setStatus('Synced · refreshes every 3s');
-      } catch(error) {if(!stopped)setStatus(error.message);}
-      finally {if(!stopped)timer=setTimeout(sync,3000);}
+        if (publishError && !signal.aborted) setStatus(revision === undefined ? 'Synced' : 'Live');
+        publishError = '';
+      } catch (error) {
+        publishError = error.message;
+        if (!signal.aborted) setStatus(publishError);
+      } finally {
+        publishing = false;
+      }
     }
-    setStatus('Syncing…');sync();
-    return ()=>{stopped=true;clearTimeout(timer);};
-  },[board,session,setProject]);
+    publishPending.current = publish;
+
+    async function sync() {
+      if (signal.aborted) return;
+      let retryDelay = 0;
+      try {
+        const moveAtStart = moveQueues.current.get(board);
+        if (moveAtStart?.pending) await moveAtStart.task;
+        if (signal.aborted) return;
+        const reviewAtStart = reviewRevision.current;
+        const url = revision == null ? path : `${path}/updates?after=${revision}`;
+        const remote = await boardRequest(url,session,'GET',undefined,signal);
+        if (signal.aborted) return;
+        if (remote) {
+          const moveNow = moveQueues.current.get(board);
+          // Replay a read if local writes overlapped it. Keep the cursor until it can be applied.
+          if (moveNow !== moveAtStart || moveNow?.pending || reviewAtStart !== reviewRevision.current) return;
+          for (const snapshot of remote.snapshots || []) known.add(snapshot.id);
+          if (remote.members || remote.reviews) setReviewState(previous=>({
+            board,
+            members:remote.members ?? (previous.board === board ? previous.members : []),
+            reviews:remote.reviews ?? (previous.board === board ? previous.reviews : []),
+          }));
+          if (remote.snapshots || remote.positions) setProject(prev=>{
+            if (prev.sharedBoardId !== board) return prev;
+            const images = mergeSnapshots(prev.canvasImages,remote.snapshots,remote.positions);
+            return images === prev.canvasImages ? prev : {...prev,canvasImages:images};
+          });
+          revision = remote.revision;
+          ready = true;
+        }
+        if (!publishError) setStatus(revision === undefined ? 'Synced' : 'Live');
+        publish();
+        if (revision === undefined) retryDelay = 3000;
+      } catch (error) {
+        if (!signal.aborted) setStatus(error.message);
+        retryDelay = 1500;
+      } finally {
+        if (!signal.aborted) {
+          if (retryDelay) timer = setTimeout(sync,retryDelay);
+          else sync();
+        }
+      }
+    }
+
+    setStatus('Connecting…');
+    sync();
+    return ()=>{
+      connection.abort();
+      clearTimeout(timer);
+      publishPending.current = null;
+    };
+  },[board,project.projectId,session,setProject]);
+  useEffect(()=>{publishPending.current?.();},[project.canvasImages]);
   async function createSharedBoard() {
     const created = await boardRequest('',session,'POST',{name:project.projectName});
     setProject(previous=>previous.projectId === project.projectId && !previous.sharedBoardId

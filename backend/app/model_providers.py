@@ -5,6 +5,7 @@ The browser sends only an ID. Keys, endpoints and SDK options come from server c
 import base64
 import json
 import os
+from urllib.parse import quote
 from typing import Literal
 
 from fastapi import HTTPException
@@ -88,10 +89,28 @@ def openai_client(entry):
     return OpenAI(**options)
 
 
-def complete_text(entry, messages, token_limit=4000, schema=None):
+def complete_text(entry, messages, token_limit=4000, schema=None, images=None, image_labels=None):
     """Return complete text only; validate structured content at the caller."""
     try:
+        image_parts = []
+        for image in images or []:
+            header, encoded = image.split(',', 1)
+            mime = header.removeprefix('data:').removesuffix(';base64')
+            if mime not in ('image/jpeg', 'image/png', 'image/webp') or len(encoded) > 28_000_000:
+                raise ValueError('Invalid evaluation image')
+            image_parts.append((mime, encoded, base64.b64decode(encoded, validate=True)))
+        messages = [dict(message) for message in messages]
+        def labeled_images(make_image):
+            blocks = []
+            for index, (mime, encoded, data) in enumerate(image_parts):
+                label = image_labels[index] if image_labels else f'Image {index + 1}'
+                blocks.extend([{'type':'text', 'text':label}, make_image(mime, encoded, data)])
+            return blocks
         if entry.provider in ('openai','azure'):
+            if image_parts:
+                messages[-1]['content'] = [{'type':'text', 'text':messages[-1]['content']}] + labeled_images(lambda mime, encoded, data:
+                    {'type':'image_url', 'image_url':{'url':f'data:{mime};base64,{encoded}'}}
+                )
             with openai_client(entry) as client:
                 options = text_generation_options(entry.model, token_limit)
                 if schema:
@@ -109,6 +128,10 @@ def complete_text(entry, messages, token_limit=4000, schema=None):
             if schema:
                 options = {'tools':[{'name':'submit_analysis','description':'Return the complete scientific analysis.', 'input_schema':schema.model_json_schema()}],
                            'tool_choice':{'type':'tool','name':'submit_analysis'}}
+            if image_parts:
+                messages[-1]['content'] = [{'type':'text', 'text':messages[-1]['content']}] + labeled_images(lambda mime, encoded, data:
+                    {'type':'image', 'source':{'type':'base64', 'media_type':mime, 'data':encoded}}
+                )
             with Anthropic(api_key=os.environ[entry.key_env], timeout=120, max_retries=0) as client:
                 response = client.messages.create(model=entry.model, max_tokens=token_limit,
                     system='\n'.join(message['content'] for message in messages if message['role']=='system'),
@@ -122,12 +145,19 @@ def complete_text(entry, messages, token_limit=4000, schema=None):
                 content = ''.join(block.text for block in response.content if block.type=='text')
         else:
             from google import genai
+            from google.genai import types
             options = {'system_instruction':'\n'.join(message['content'] for message in messages if message['role']=='system'), 'max_output_tokens':token_limit}
             if schema:
                 options.update(response_mime_type='application/json', response_schema=schema)
+            contents = '\n'.join(message['content'] for message in messages if message['role']!='system')
+            if image_parts:
+                contents = [contents]
+                for index, (mime, _, data) in enumerate(image_parts):
+                    contents.extend([image_labels[index] if image_labels else f'Image {index + 1}',
+                                     types.Part.from_bytes(data=data, mime_type=mime)])
             with genai.Client(api_key=os.environ[entry.key_env], http_options={'timeout':120000}) as client:
                 response = client.models.generate_content(model=entry.model,
-                    contents='\n'.join(message['content'] for message in messages if message['role']!='system'), config=options)
+                    contents=contents, config=options)
             if not response.candidates or response.candidates[0].finish_reason != 'STOP':
                 raise HTTPException(502, 'The analysis was incomplete or declined. Revise the brief and retry.')
             content = response.text
@@ -152,16 +182,35 @@ def render_image(prompt, plan, selection, progress=lambda stage, message: None):
         from .teaser import render_openai_prompt
         return render_openai_prompt(prompt, plan, progress, config=entry)
     try:
+        from .cover_library import reference_images, image_mime
+        references = reference_images(plan)
+        cover = plan.get('outputKind') == 'cover'
         if entry.provider == 'azure':
             with openai_client(entry) as client:
-                response = client.images.generate(model=entry.model, prompt=prompt, n=1,
-                    size=os.getenv('OPENAI_IMAGE_SIZE', '1024x1024'), quality=os.getenv('OPENAI_IMAGE_QUALITY', 'low'),
-                    extra_body={'output_format':'jpeg','output_compression':85})
+                options = dict(model=entry.model, prompt=prompt, n=1,
+                    size=os.getenv('TEASER_COVER_IMAGE_SIZE', '1024x1536') if cover else os.getenv('OPENAI_IMAGE_SIZE', '1024x1024'))
+                quality = os.getenv('TEASER_COVER_IMAGE_QUALITY', 'medium') if cover else os.getenv('OPENAI_IMAGE_QUALITY', 'low')
+                if references:
+                    # The pinned SDK's images.edit accepts only one file. Its transport
+                    # still handles credentials, API version and multipart file arrays.
+                    from openai.types import ImagesResponse
+                    response = client.post(f'/deployments/{quote(entry.model, safe="")}/images/edits', cast_to=ImagesResponse,
+                        body={**options, 'quality':quality,'output_format':'jpeg','output_compression':85},
+                        files=[('image[]', (f'reference-{i}.{"png" if image_mime(data) == "image/png" else "jpg"}', data, image_mime(data))) for i, data in enumerate(references)],
+                        options={'headers':{'Content-Type':'multipart/form-data'}, 'timeout':240})
+                else:
+                    response = client.images.generate(**options, quality=quality,
+                        extra_body={'output_format':'jpeg','output_compression':85})
             data = base64.b64decode(response.data[0].b64_json, validate=True)
         else:
             from google import genai
+            from google.genai import types
+            contents = [prompt] + [types.Part.from_bytes(data=data, mime_type=image_mime(data)) for data in references] if references else prompt
+            options = {'response_modalities':['TEXT','IMAGE']}
+            if cover:
+                options['image_config'] = {'aspect_ratio':'2:3'}
             with genai.Client(api_key=os.environ[entry.key_env], http_options={'timeout':240000}) as client:
-                response = client.models.generate_content(model=entry.model, contents=prompt, config={'response_modalities':['TEXT','IMAGE']})
+                response = client.models.generate_content(model=entry.model, contents=contents, config=options)
             parts = response.candidates[0].content.parts if response.candidates else []
             blob = next((part.inline_data for part in parts if part.inline_data and part.inline_data.mime_type.startswith('image/')), None)
             if not blob:
